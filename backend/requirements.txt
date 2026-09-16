@@ -1,0 +1,22 @@
+# MedRec backend — Python 3.11 REQUIRED (see .python-version).
+# Newer Pythons (3.12+/3.13+/3.14) break passlib/bcrypt and some wheels,
+# so stay on 3.11.
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+sqlalchemy==2.0.43
+psycopg2-binary==2.9.10
+alembic==1.16.5
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1  # DO NOT upgrade: bcrypt>=4.1 breaks passlib
+python-multipart==0.0.20
+pydantic==2.11.7
+pydantic-settings==2.10.1
+httpx==0.28.1
+PyMuPDF==1.26.4
+Pillow==11.3.0
+pytesseract==0.3.13
+python-dotenv==1.1.1
+email-validator==2.2.0
+firebase-admin==6.5.0  # Firebase login (service-account verification)
+reportlab==4.2.5  # Export full record as PDF

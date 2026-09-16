@@ -1,0 +1,45 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import Navbar from './components/Navbar'
+import Footer from './components/Footer'
+import ProtectedRoute from './components/ProtectedRoute'
+import Landing from './pages/Landing'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import PatientDashboard from './pages/PatientDashboard'
+import DoctorDashboard from './pages/DoctorDashboard'
+import Contact from './pages/Contact'
+import Profile from './pages/Profile'
+import Policy from './pages/Policy'
+import Timeline from './pages/Timeline'
+import Notifications from './pages/Notifications'
+import Admin from './pages/Admin'
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <div className="app-shell">
+          <Navbar />
+          <main className="app-main">
+            <Routes>
+              {/* Public home page: read about features first, then login */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/policy" element={<Policy />} />
+              <Route path="/profile" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Profile /></ProtectedRoute>} />
+              <Route path="/patient" element={<ProtectedRoute roles={['patient']}><PatientDashboard /></ProtectedRoute>} />
+              <Route path="/doctor" element={<ProtectedRoute roles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
+              <Route path="/timeline" element={<ProtectedRoute roles={['patient', 'doctor']}><Timeline /></ProtectedRoute>} />
+              <Route path="/notifications" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Notifications /></ProtectedRoute>} />
+              <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Admin /></ProtectedRoute>} />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
+      </BrowserRouter>
+    </AuthProvider>
+  )
+}
