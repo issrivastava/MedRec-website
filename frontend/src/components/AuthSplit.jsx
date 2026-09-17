@@ -19,7 +19,7 @@ export default function AuthSplit({ points, children }) {
               <Avatar seed={n} name={n} size={40} />
             </span>
           ))}
-          <span style={{ marginLeft: 12, fontSize: 14, color: '#ccfbf1' }}>Joined by <b>1,200+ patients</b><br />and <b>120+ doctors</b></span>
+          <span style={{ marginLeft: 12, fontSize: 14, color: '#c9d4e2' }}>Joined by <b>1,200+ patients</b><br />and <b>120+ doctors</b></span>
         </div>
       </aside>
       <div className="auth-main">

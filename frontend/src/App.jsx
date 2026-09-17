@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { ProfileProvider } from './context/ProfileContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -19,6 +20,7 @@ import Admin from './pages/Admin'
 export default function App() {
   return (
     <AuthProvider>
+      <ProfileProvider>
       <BrowserRouter>
         <div className="app-shell">
           <Navbar />
@@ -42,6 +44,7 @@ export default function App() {
           <Footer />
         </div>
       </BrowserRouter>
+      </ProfileProvider>
     </AuthProvider>
   )
 }

@@ -63,7 +63,7 @@ export default function VisitNotes({ role, patientId }) {
 const s = {
   form: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 },
   input: { padding: 8, fontSize: 14, fontFamily: 'inherit' },
-  btn: { padding: '8px 14px', background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer', alignSelf: 'flex-start' },
+  btn: { padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', alignSelf: 'flex-start' },
   note: { border: '1px solid #f1f5f4', borderLeft: '4px solid #16a34a', borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: '#fff' },
   med: { background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 10px', margin: '4px 0', fontSize: 14 },
 }

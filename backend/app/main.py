@@ -16,9 +16,15 @@ def _ensure_columns() -> None:
     """Add newer columns on databases created before those updates."""
     try:
         insp = inspect(engine)
-        user_cols = [c["name"] for c in insp.get_columns("users")]
-        doc_cols = [c["name"] for c in insp.get_columns("documents")]
-        sum_cols = [c["name"] for c in insp.get_columns("ai_summaries")]
+        tables = set(insp.get_table_names())
+        user_cols = [c["name"] for c in insp.get_columns("users")] if "users" in tables else []
+        doc_cols = [c["name"] for c in insp.get_columns("documents")] if "documents" in tables else []
+        sum_cols = [c["name"] for c in insp.get_columns("ai_summaries")] if "ai_summaries" in tables else []
+        prof_cols = [c["name"] for c in insp.get_columns("patient_profiles")] if "patient_profiles" in tables else []
+        fam_cols = [c["name"] for c in insp.get_columns("family_members")] if "family_members" in tables else []
+        visit_cols = [c["name"] for c in insp.get_columns("visit_notes")] if "visit_notes" in tables else []
+        appt_cols = [c["name"] for c in insp.get_columns("appointments")] if "appointments" in tables else []
+        alert_cols = [c["name"] for c in insp.get_columns("health_alerts")] if "health_alerts" in tables else []
         with engine.begin() as conn:
             if "avatar_path" not in user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN avatar_path VARCHAR(1024)"))
@@ -26,8 +32,32 @@ def _ensure_columns() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN firebase_uid VARCHAR(128)"))
             if "family_member_id" not in doc_cols:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN family_member_id VARCHAR(36)"))
+            if "category" not in doc_cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN category VARCHAR(50)"))
+            if "report_kind" not in doc_cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN report_kind VARCHAR(50)"))
             if "language" not in sum_cols:
                 conn.execute(text("ALTER TABLE ai_summaries ADD COLUMN language VARCHAR(10) DEFAULT 'en'"))
+            for col, ddl in [
+                ("height_cm", "FLOAT"), ("weight_kg", "FLOAT"),
+                ("marital_status", "VARCHAR(50)"), ("occupation", "VARCHAR(255)"),
+                ("smoking_status", "VARCHAR(100)"), ("alcohol_use", "VARCHAR(100)"),
+                ("diet", "VARCHAR(100)"), ("activity_level", "VARCHAR(100)"),
+                ("past_illnesses", "TEXT"), ("surgeries", "TEXT"),
+                ("current_medications", "TEXT"), ("immunizations", "TEXT"),
+                ("family_history_text", "TEXT"), ("menstrual_history", "TEXT"),
+                ("mental_health", "TEXT"),
+            ]:
+                if prof_cols and col not in prof_cols:
+                    conn.execute(text(f"ALTER TABLE patient_profiles ADD COLUMN {col} {ddl}"))
+                if fam_cols and col not in fam_cols:
+                    conn.execute(text(f"ALTER TABLE family_members ADD COLUMN {col} {ddl}"))
+            if visit_cols and "family_member_id" not in visit_cols:
+                conn.execute(text("ALTER TABLE visit_notes ADD COLUMN family_member_id VARCHAR(36)"))
+            if appt_cols and "family_member_id" not in appt_cols:
+                conn.execute(text("ALTER TABLE appointments ADD COLUMN family_member_id VARCHAR(36)"))
+            if alert_cols and "family_member_id" not in alert_cols:
+                conn.execute(text("ALTER TABLE health_alerts ADD COLUMN family_member_id VARCHAR(36)"))
     except Exception:
         pass  # fresh create_all already covers new databases
 

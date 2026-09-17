@@ -29,7 +29,7 @@ export default function Contact() {
   return (
     <div style={s.wrap}>
       <h2 style={{ margin: '0 0 4px' }}>✉️ Contact Us</h2>
-      <p style={{ color: '#5f6f6a', margin: '0 0 16px' }}>Questions about MedRec, your account, or a bug? We reply within 2 business days.</p>
+      <p style={{ color: '#5d6b7a', margin: '0 0 16px' }}>Questions about MedRec, your account, or a bug? We reply within 2 business days.</p>
       <div className="cols-2" style={{ alignItems: 'start' }}>
         <form onSubmit={submit} style={s.form}>
           <input placeholder="Your name" value={form.name} onChange={set('name')} required style={s.input} />
@@ -54,6 +54,6 @@ const s = {
   wrap: { width: '100%', padding: '26px 30px 40px' },
   form: { display: 'flex', flexDirection: 'column', gap: 10 },
   input: { padding: 10, fontSize: 15, fontFamily: 'inherit' },
-  btn: { padding: 12, background: 'linear-gradient(90deg,#14b8a6,#0f766e)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700, fontSize: 15 },
-  side: { background: '#134e4a', color: '#fff', borderRadius: 12, padding: 20 },
+  btn: { padding: 12, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700, fontSize: 15 },
+  side: { background: '#1a2e45', color: '#fff', borderRadius: 12, padding: 20 },
 }

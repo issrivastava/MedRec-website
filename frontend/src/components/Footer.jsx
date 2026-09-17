@@ -29,12 +29,12 @@ export default function Footer() {
 }
 
 const s = {
-  footer: { background: '#134e4a', color: '#fff', marginTop: 32 },
-  inner: { width: '100%', padding: '28px 30px', display: 'flex', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' },
-  brand: { fontWeight: 800, fontSize: 22 },
-  tag: { margin: '6px 0 0', color: '#ccfbf1', maxWidth: 320 },
-  cols: { display: 'flex', gap: 48 },
-  col: { display: 'flex', flexDirection: 'column', gap: 8 },
-  link: { color: '#fff', textDecoration: 'none' },
-  bottom: { borderTop: '1px solid rgba(255,255,255,.3)', padding: '12px 30px', textAlign: 'left', fontSize: 13, color: '#ccfbf1' },
+  footer: { background: '#1a2e45', color: '#fff', marginTop: 32, borderTop: '4px solid #8a6d3b' },
+  inner: { width: '100%', padding: '28px clamp(12px,3vw,30px)', display: 'flex', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' },
+  brand: { fontWeight: 700, fontSize: 22, fontFamily: 'Georgia, serif' },
+  tag: { margin: '6px 0 0', color: '#c9d4e2', maxWidth: 320 },
+  cols: { display: 'flex', gap: 32, flexWrap: 'wrap' },
+  col: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 120 },
+  link: { color: '#e8eef5', textDecoration: 'none' },
+  bottom: { borderTop: '1px solid rgba(255,255,255,.2)', padding: '12px clamp(12px,3vw,30px)', textAlign: 'left', fontSize: 13, color: '#9fb3c8' },
 }

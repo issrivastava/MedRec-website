@@ -13,18 +13,35 @@ router = APIRouter()
 
 
 def analyze_document(db: Session, doc: Document) -> list[HealthAlert]:
-    """Parse OCR text, compare to ranges, create alerts + notify. Returns new alerts."""
+    """Parse OCR text, persist every lab value for trends, create alerts + notify. Returns new alerts."""
+    from app.models.tables import LabResult
+
     created: list[HealthAlert] = []
     for test_key, value in parse_lab_values(doc.ocr_text or ""):
         rng = effective_range(db, test_key, doc.owner_id)
         if not rng or (rng.min_value is None and rng.max_value is None):
             continue
-        flag = None
+        flag = "normal"
         if rng.min_value is not None and value < rng.min_value:
             flag = "low"
         elif rng.max_value is not None and value > rng.max_value:
             flag = "high"
-        if not flag:
+        # Persist every observed value for trends (dedupe per document+test)
+        existing_result = db.query(LabResult).filter_by(document_id=doc.id, test_key=test_key).first()
+        measured = doc.visit_date or doc.created_at.date()
+        if existing_result:
+            existing_result.value = value
+            existing_result.unit = rng.unit
+            existing_result.flag = flag
+            existing_result.measured_at = measured
+            existing_result.family_member_id = doc.family_member_id
+        else:
+            db.add(LabResult(
+                document_id=doc.id, owner_id=doc.owner_id, family_member_id=doc.family_member_id,
+                test_key=test_key, display_name=rng.display_name, value=value, unit=rng.unit,
+                flag=flag, measured_at=measured,
+            ))
+        if flag == "normal":
             continue
         name = rng.display_name
         ref = f"alert:{doc.id}:{test_key}:{flag}"
@@ -35,11 +52,16 @@ def analyze_document(db: Session, doc: Document) -> list[HealthAlert]:
                f"(healthy range {rng.min_value}–{rng.max_value}). Please discuss with your doctor "
                f"and consider a checkup.")
         alert = HealthAlert(patient_id=doc.owner_id, document_id=doc.id, test_name=name,
-                            value=value, unit=rng.unit, flag=flag, message=msg)
+                            value=value, unit=rng.unit, flag=flag, message=msg,
+                            family_member_id=doc.family_member_id)
         db.add(alert)
         created.append(alert)
-    if created:
+    # Always flush lab results even when everything is normal
+    try:
         db.commit()
+    except Exception:
+        db.rollback()
+    if created:
         for a in created:
             notify(db, doc.owner_id, "health_alert", f"Health alert: {a.test_name} {a.flag}",
                    a.message, link="/patient", ref=f"alert:{a.id}")

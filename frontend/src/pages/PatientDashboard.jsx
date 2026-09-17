@@ -5,20 +5,25 @@ import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
 import DashboardLayout from '../components/DashboardLayout'
+import ProfileSwitcher from '../components/ProfileSwitcher'
+import { useProfile } from '../context/ProfileContext'
 import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import FamilyManager from '../components/FamilyManager'
+import ReportAnalytics from '../components/ReportAnalytics'
+import { kindsForCategory, kindLabel, kindIcon } from '../reportKinds'
 import { AlertsPanel } from '../components/Alerts'
 import { PatientReviews } from '../components/Reviews'
 import { EmergencyButton } from '../components/EmergencyButton'
 
 export default function PatientDashboard() {
   const { user } = useAuth()
+  const { activeId, activeName } = useProfile()
   const [tab, setTab] = useState('overview')
   const [profile, setProfile] = useState(null)
   const [docs, setDocs] = useState([])
-  const [filter, setFilter] = useState({ q: '', doctor_name: '', doc_type: '', group_by: 'date', member: '' })
-  const [upload, setUpload] = useState({ title: '', doc_type: 'report', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: '' })
+  const [filter, setFilter] = useState({ q: '', doctor_name: '', doc_type: '', category: '', report_kind: '', group_by: 'date', member: '' })
+  const [upload, setUpload] = useState({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: '' })
   const [file, setFile] = useState(null)
   const [summary, setSummary] = useState(null)
   const [overall, setOverall] = useState(null)
@@ -47,11 +52,19 @@ export default function PatientDashboard() {
 
   useEffect(() => { load().catch(console.error) }, [])
 
+  // Active profile drives the record filter + upload attribution
+  useEffect(() => {
+    setFilter((f) => ({ ...f, member: activeId || '' }))
+    setUpload((u) => ({ ...u, family_member_id: activeId || '' }))
+  }, [activeId])
+
   const filtered = useMemo(() => {
     return docs.filter((d) => {
-      if (filter.q && !(d.title + (d.hospital || '') + (d.notes || '')).toLowerCase().includes(filter.q.toLowerCase())) return false
+      if (filter.q && !(d.title + (d.hospital || '') + (d.notes || '') + (d.report_kind || '') + (d.category || '')).toLowerCase().includes(filter.q.toLowerCase())) return false
       if (filter.doctor_name && !(d.doctor_name || '').toLowerCase().includes(filter.doctor_name.toLowerCase())) return false
       if (filter.doc_type && d.doc_type !== filter.doc_type) return false
+      if (filter.category && (d.category || '') !== filter.category) return false
+      if (filter.report_kind && (d.report_kind || '') !== filter.report_kind) return false
       if (filter.member === 'mine' && d.family_member_id) return false
       if (filter.member && filter.member !== 'mine' && d.family_member_id !== filter.member) return false
       return true
@@ -64,6 +77,11 @@ export default function PatientDashboard() {
       filtered.forEach((d) => { const k = d.doctor_name || 'Unknown doctor'; (g[k] ||= []).push(d) })
       return g
     }
+    if (filter.group_by === 'kind') {
+      const g = {}
+      filtered.forEach((d) => { const k = kindLabel(d.report_kind) || d.doc_type || 'Other'; (g[k] ||= []).push(d) })
+      return Object.fromEntries(Object.entries(g).sort())
+    }
     const g = {}
     filtered.forEach((d) => { const k = d.visit_date ? d.visit_date.slice(0, 7) : 'Undated'; (g[k] ||= []).push(d) })
     return Object.fromEntries(Object.entries(g).sort().reverse())
@@ -71,6 +89,7 @@ export default function PatientDashboard() {
 
   const memberName = (id) => (family.find((m) => m.id === id) || {}).name
   const typeIcon = { report: ['📄', 't-blue'], prescription: ['🧾', 't-violet'], lab: ['🧪', 't-teal'], scan: ['🩻', 't-amber'], other: ['📁', 't-orange'] }
+  const iconFor = (d) => kindIcon(d.report_kind, typeIcon[d.doc_type] || typeIcon.other)
   const upcoming = stats.appts.filter((a) => a.status === 'booked')
   const firstName = user?.full_name ? user.full_name.split(' ')[0] : ''
 
@@ -88,7 +107,7 @@ export default function PatientDashboard() {
     if (!upload.title) return setMsg('Title is required')
     await api.post('/api/documents', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     setMsg('Uploaded — lab values auto-checked for alerts')
-    setFile(null); setUpload({ title: '', doc_type: 'report', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: '' })
+    setFile(null); setUpload({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: activeId || '' })
     load()
   }
 
@@ -112,6 +131,7 @@ export default function PatientDashboard() {
   const items = [
     { key: 'overview', label: 'Overview', icon: '🏠' },
     { key: 'records', label: 'My Records', icon: '🗂️', badge: docs.length },
+    { key: 'analytics', label: 'Analysis', icon: '📊' },
     { key: 'rx', label: 'Prescriptions', icon: '💊', badge: stats.notes },
     { key: 'appts', label: 'Appointments', icon: '📅', badge: upcoming.length },
     { key: 'reviews', label: 'Add Your Review', icon: '⭐' },
@@ -122,16 +142,17 @@ export default function PatientDashboard() {
   return (
     <DashboardLayout
       title={`👋 Welcome back${firstName ? `, ${firstName}` : ''}`}
-      subtitle="Your health command center — records, visits, alerts and family in one place."
+      subtitle={`Your health command center — now viewing: ${activeName}. Switch profiles anytime.`}
       items={items} active={tab} onSelect={setTab}>
 
       {msg && <p style={{ color: 'green' }}>{msg}</p>}
+      <ProfileSwitcher />
 
       {tab === 'overview' && (
         <div className="rise">
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-rose">🆘</span> Emergency SOS</h3>
-            <p style={{ fontSize: 13, color: '#5f6f6a', margin: '0 0 10px' }}>
+            <p style={{ fontSize: 13, color: '#5d6b7a', margin: '0 0 10px' }}>
               One tap alerts all your linked doctors and texts your emergency contact
               {profile?.emergency_contact ? <> (<b>{profile.emergency_contact}</b>)</> : ' — set one in Family & Info'}.
             </p>
@@ -166,7 +187,7 @@ export default function PatientDashboard() {
 
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-blue">👨‍⚕️</span> My Doctors</h3>
-            <form onSubmit={linkDoctor} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <form onSubmit={linkDoctor} className="inline-form">
               <input placeholder="Doctor email to link" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} style={s.input} />
               <button style={s.primaryBtn}>Add</button>
             </form>
@@ -174,7 +195,7 @@ export default function PatientDashboard() {
               {links.map((l) => (
                 <span key={l.id} style={s.docChip}>
                   <Avatar seed={l.doctor_id} name={l.doctor_name} size={34} />
-                  <span><b>Dr. {l.doctor_name}</b><br /><small style={{ color: '#5f6f6a' }}>{l.doctor_email}</small></span>
+                  <span><b>Dr. {l.doctor_name}</b><br /><small style={{ color: '#5d6b7a' }}>{l.doctor_email}</small></span>
                 </span>
               ))}
               {!links.length && <span style={{ color: '#78716c' }}>No doctors linked yet.</span>}
@@ -189,9 +210,9 @@ export default function PatientDashboard() {
             <section style={s.card}>
               <h3 className="sec-head"><span className="tile t-orange">📤</span> Scan / Upload</h3>
               <form onSubmit={doUpload} style={s.form}>
-                <input placeholder="Title*" value={upload.title} onChange={(e) => setUpload({ ...upload, title: e.target.value })} style={s.input} />
-                <div style={s.grid2}>
-                  <select value={upload.doc_type} onChange={(e) => setUpload({ ...upload, doc_type: e.target.value })} style={s.input}>
+                <input placeholder="Title* e.g. CBC Report Jan, Chest X-Ray" value={upload.title} onChange={(e) => setUpload({ ...upload, title: e.target.value })} style={s.input} />
+                <div className="form-grid">
+                  <select value={upload.doc_type} onChange={(e) => setUpload({ ...upload, doc_type: e.target.value })} style={s.input} title="Legacy type">
                     <option value="report">Report</option><option value="prescription">Prescription</option>
                     <option value="lab">Lab</option><option value="scan">Scan</option><option value="other">Other</option>
                   </select>
@@ -200,11 +221,25 @@ export default function PatientDashboard() {
                     {family.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </div>
-                <div style={s.grid2}>
+                <div className="form-grid">
+                  <select value={upload.category} onChange={(e) => setUpload({ ...upload, category: e.target.value, report_kind: '' })} style={s.input} title="Report category">
+                    <option value="">Category: auto-detect</option>
+                    <option value="lab">Pathology Lab (CBC, TSH, LFT…)</option>
+                    <option value="imaging">Radiology / Imaging (X-Ray, MRI…)</option>
+                    <option value="cardiology">Cardiac (ECG, Echo…)</option>
+                    <option value="prescription">Prescription & Clinical</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select value={upload.report_kind} onChange={(e) => setUpload({ ...upload, report_kind: e.target.value })} style={s.input} title="Report kind">
+                    <option value="">Kind: auto-detect from title</option>
+                    {kindsForCategory(upload.category).map((k) => <option key={k.key} value={k.key}>{k.icon} {k.label}</option>)}
+                  </select>
+                </div>
+                <div className="form-grid">
                   <input placeholder="Doctor name" value={upload.doctor_name} onChange={(e) => setUpload({ ...upload, doctor_name: e.target.value })} style={s.input} />
                   <input placeholder="Hospital" value={upload.hospital} onChange={(e) => setUpload({ ...upload, hospital: e.target.value })} style={s.input} />
                 </div>
-                <div style={s.grid2}>
+                <div className="form-grid">
                   <input type="date" value={upload.visit_date} onChange={(e) => setUpload({ ...upload, visit_date: e.target.value })} style={s.input} />
                   <input placeholder="Notes" value={upload.notes} onChange={(e) => setUpload({ ...upload, notes: e.target.value })} style={s.input} />
                 </div>
@@ -231,15 +266,28 @@ export default function PatientDashboard() {
 
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Documents</h3>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-              <input placeholder="Search" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} style={s.input} />
+            <div className="toolbar-row">
+              <input placeholder="Search title, hospital, kind…" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} style={s.input} />
               <input placeholder="Filter by doctor" value={filter.doctor_name} onChange={(e) => setFilter({ ...filter, doctor_name: e.target.value })} style={s.input} />
               <select value={filter.doc_type} onChange={(e) => setFilter({ ...filter, doc_type: e.target.value })} style={s.input}>
                 <option value="">All types</option><option value="report">Report</option><option value="prescription">Prescription</option>
                 <option value="lab">Lab</option><option value="scan">Scan</option><option value="other">Other</option>
               </select>
+              <select value={filter.category} onChange={(e) => setFilter({ ...filter, category: e.target.value, report_kind: '' })} style={s.input}>
+                <option value="">All categories</option>
+                <option value="lab">Pathology Lab</option>
+                <option value="imaging">Radiology / Imaging</option>
+                <option value="cardiology">Cardiac</option>
+                <option value="prescription">Prescription & Clinical</option>
+                <option value="other">Other</option>
+              </select>
+              <select value={filter.report_kind} onChange={(e) => setFilter({ ...filter, report_kind: e.target.value })} style={s.input}>
+                <option value="">All kinds (X-Ray, CBC, MRI, TSH, LFT…)</option>
+                {kindsForCategory(filter.category).map((k) => <option key={k.key} value={k.key}>{k.icon} {k.label}</option>)}
+              </select>
               <select value={filter.group_by} onChange={(e) => setFilter({ ...filter, group_by: e.target.value })} style={s.input}>
                 <option value="date">Date-wise</option><option value="doctor">Doctor-wise</option>
+                <option value="kind">Report-kind-wise</option>
               </select>
               <select value={filter.member} onChange={(e) => setFilter({ ...filter, member: e.target.value })} style={s.input}>
                 <option value="">Everyone</option><option value="mine">Mine only</option>
@@ -248,14 +296,16 @@ export default function PatientDashboard() {
             </div>
             {Object.entries(grouped).map(([group, items]) => (
               <div key={group} style={{ marginBottom: 14 }}>
-                <h4 style={{ background: '#ccfbf1', padding: 6, borderRadius: 6 }}>{group} ({items.length})</h4>
+                <h4 style={{ background: '#c9d4e2', padding: 6, borderRadius: 6 }}>{group} ({items.length})</h4>
                 {items.map((d) => (
                   <div key={d.id} className="doc-row">
-                    <span className={`tile ${(typeIcon[d.doc_type] || typeIcon.other)[1]}`}>{(typeIcon[d.doc_type] || typeIcon.other)[0]}</span>
+                    <span className={`tile ${iconFor(d)[1]}`}>{iconFor(d)[0]}</span>
                     <div className="grow">
-                      <b>{d.title}</b> <span className="pill pill-info">{d.doc_type}</span>
-                      <div style={{ fontSize: 13, color: '#5f6f6a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}{d.family_member_id && memberName(d.family_member_id) ? ` · 👪 ${memberName(d.family_member_id)}` : ''}</div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                      <b>{d.title}</b>{' '}
+                      <span className="pill pill-info">{kindLabel(d.report_kind) || d.doc_type}</span>
+                      {d.category && <span className="pill" style={{ background: '#eef2f7', marginLeft: 6 }}>{d.category}</span>}
+                      <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}{d.family_member_id && memberName(d.family_member_id) ? ` · 👪 ${memberName(d.family_member_id)}` : ''}</div>
+                      <div className="doc-actions">
                         <button onClick={() => summarize(d.id)}>AI summary</button>
                         <button onClick={() => downloadDocument(d.id, d.title)}>View</button>
                         <button onClick={async () => { await api.delete(`/api/documents/${d.id}`); load() }}>Delete</button>
@@ -270,6 +320,13 @@ export default function PatientDashboard() {
             )}
           </section>
         </div>
+      )}
+
+      {tab === 'analytics' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-blue">📊</span> Report Analysis — {activeName}</h3>
+          <ReportAnalytics docs={filtered} />
+        </section>
       )}
 
       {tab === 'rx' && (
@@ -298,7 +355,7 @@ export default function PatientDashboard() {
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-orange">🧍</span> My Info</h3>
             {profile && (
-              <div style={s.grid2}>
+              <div className="form-grid">
                 <input placeholder="Phone" value={profile.phone || ''} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} style={s.input} />
                 <input placeholder="DOB (YYYY-MM-DD)" value={profile.dob || ''} onChange={(e) => setProfile({ ...profile, dob: e.target.value })} style={s.input} />
                 <input placeholder="Gender" value={profile.gender || ''} onChange={(e) => setProfile({ ...profile, gender: e.target.value })} style={s.input} />
@@ -322,14 +379,13 @@ export default function PatientDashboard() {
 }
 
 const s = {
-  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #0f766e', borderRadius: 12, padding: 18, marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)' },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
-  form: { display: 'flex', flexDirection: 'column', gap: 8 },
-  input: { padding: 8, fontSize: 14 },
-  primaryBtn: { padding: '8px 16px', background: 'linear-gradient(90deg,#14b8a6,#0f766e)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700, alignSelf: 'flex-start' },
-  linkBtn: { background: 'none', border: 0, color: '#115e59', cursor: 'pointer', padding: 0, fontWeight: 700, boxShadow: 'none' },
+  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 'clamp(12px,3vw,18px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)', minWidth: 0 },
+  form: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 },
+  input: { padding: 8, fontSize: 14, minWidth: 0, maxWidth: '100%' },
+  primaryBtn: { padding: '8px 16px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700, alignSelf: 'flex-start' },
+  linkBtn: { background: 'none', border: 0, color: '#152a45', cursor: 'pointer', padding: 0, fontWeight: 700, boxShadow: 'none' },
   doc: { borderBottom: '1px solid #eee', padding: '8px 0' },
-  summary: { background: '#f0fdfa', border: '1px solid #99f6e4', padding: 12, borderRadius: 8, marginTop: 10 },
+  summary: { background: '#eef2f7', border: '1px solid #c9d4e2', padding: 12, borderRadius: 8, marginTop: 10 },
   row: { display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #eee', padding: '8px 0', flexWrap: 'wrap' },
   chip: { display: 'inline-block', background: '#dbeafe', border: '1px solid #bfdbfe', borderRadius: 999, padding: '4px 12px', fontWeight: 600 },
   docChip: { display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e7e5e4', borderRadius: 14, padding: '8px 14px 8px 8px', boxShadow: '0 1px 3px rgba(15,118,110,.08)' },

@@ -47,5 +47,5 @@ export function PhotoFrame({ src, alt, style, imgStyle }) {
 }
 
 const s = {
-  fallback: { borderRadius: '50%', background: 'linear-gradient(135deg,#14b8a6,#0f766e)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 },
+  fallback: { borderRadius: '50%', background: '#1e3a5f', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 },
 }

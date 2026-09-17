@@ -44,5 +44,5 @@ export default function Notifications() {
 
 const s = {
   wrap: { width: '100%', padding: '26px 30px 40px' },
-  card: { border: '1px solid #99f6e4', background: '#f0fdfa', borderRadius: 8, padding: 12, marginBottom: 10 },
+  card: { border: '1px solid #c9d4e2', background: '#eef2f7', borderRadius: 8, padding: 12, marginBottom: 10 },
 }

@@ -14,7 +14,7 @@ export function AlertsPanel() {
   if (!alerts.length) return <p>No health alerts — lab values look fine. 🎉</p>
   return (
     <div>
-      {open.length > 0 && <p style={{ color: '#115e59', fontWeight: 700 }}>⚠ {open.length} value(s) need attention — consider a checkup.</p>}
+      {open.length > 0 && <p style={{ color: '#1a2e45', fontWeight: 700 }}>⚠ {open.length} value(s) need attention — consider a checkup.</p>}
       {alerts.map((a) => (
         <div key={a.id} style={{ ...s.alert, opacity: a.acknowledged ? 0.6 : 1 }}>
           <span className={`pill ${a.flag === 'high' ? 'pill-high' : 'pill-low'}`}>{a.flag.toUpperCase()}</span>{' '}
@@ -73,8 +73,8 @@ export function LabRanges({ patientId }) {
 }
 
 const s = {
-  alert: { background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 6, padding: 10, marginBottom: 8 },
+  alert: { background: '#eef2f7', border: '1px solid #c9d4e2', borderRadius: 6, padding: 10, marginBottom: 8 },
   row: { borderBottom: '1px solid #eee', padding: '6px 0' },
   input: { padding: 8, fontSize: 14 },
-  btn: { padding: '8px 14px', background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer' },
+  btn: { padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
 }

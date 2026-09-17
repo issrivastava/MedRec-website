@@ -54,6 +54,21 @@ class PatientProfileIn(BaseModel):
     allergies: str | None = None
     chronic_conditions: str | None = None
     emergency_contact: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    marital_status: str | None = None
+    occupation: str | None = None
+    smoking_status: str | None = None
+    alcohol_use: str | None = None
+    diet: str | None = None
+    activity_level: str | None = None
+    past_illnesses: str | None = None
+    surgeries: str | None = None
+    current_medications: str | None = None
+    immunizations: str | None = None
+    family_history_text: str | None = None
+    menstrual_history: str | None = None
+    mental_health: str | None = None
 
 
 class PatientProfileOut(PatientProfileIn):
@@ -100,6 +115,8 @@ class DocumentOut(BaseModel):
     owner_id: str
     title: str
     doc_type: str
+    category: str | None = None
+    report_kind: str | None = None
     doctor_name: str | None = None
     hospital: str | None = None
     visit_date: date | None = None
@@ -163,6 +180,21 @@ class FamilyMemberIn(BaseModel):
     allergies: str | None = None
     chronic_conditions: str | None = None
     notes: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    marital_status: str | None = None
+    occupation: str | None = None
+    smoking_status: str | None = None
+    alcohol_use: str | None = None
+    diet: str | None = None
+    activity_level: str | None = None
+    past_illnesses: str | None = None
+    surgeries: str | None = None
+    current_medications: str | None = None
+    immunizations: str | None = None
+    family_history_text: str | None = None
+    menstrual_history: str | None = None
+    mental_health: str | None = None
 
 
 class FamilyMemberOut(FamilyMemberIn):
@@ -183,6 +215,7 @@ class MedicineIn(BaseModel):
 
 class VisitNoteIn(BaseModel):
     patient_id: str
+    family_member_id: str | None = None
     note_type: str = Field(default="note", pattern="^(note|prescription)$")
     title: str | None = None
     content: str = Field(min_length=3)
@@ -194,6 +227,7 @@ class VisitNoteIn(BaseModel):
 class VisitNoteOut(BaseModel):
     id: str
     patient_id: str
+    family_member_id: str | None = None
     doctor_id: str
     doctor_name: str | None = None
     note_type: str
@@ -227,6 +261,7 @@ class AvailabilityOut(BaseModel):
 
 class AppointmentIn(BaseModel):
     doctor_id: str
+    family_member_id: str | None = None
     date: date
     start_time: str = Field(pattern=r"^\d{2}:\d{2}$")
     reason: str | None = Field(default=None, max_length=500)
@@ -236,6 +271,7 @@ class AppointmentOut(BaseModel):
     id: str
     doctor_id: str
     patient_id: str
+    family_member_id: str | None = None
     doctor_name: str | None = None
     patient_name: str | None = None
     date: date
@@ -275,6 +311,7 @@ class LabRangeOut(BaseModel):
 class HealthAlertOut(BaseModel):
     id: str
     patient_id: str
+    family_member_id: str | None = None
     document_id: str | None = None
     test_name: str
     value: float | None = None
@@ -395,3 +432,70 @@ class EmergencyAlertOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class FamilyHistoryIn(BaseModel):
+    family_member_id: str | None = None  # null => self profile
+    relation: str = Field(min_length=2, max_length=100)
+    condition: str = Field(min_length=2, max_length=255)
+    age_onset: int | None = Field(default=None, ge=0, le=120)
+    status: str = Field(default="unknown", pattern="^(alive|deceased|unknown)$")
+    severity: str | None = None
+    year_diagnosed: int | None = Field(default=None, ge=1900, le=2100)
+    notes: str | None = None
+
+
+class FamilyHistoryOut(FamilyHistoryIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LabResultOut(BaseModel):
+    id: str
+    document_id: str
+    owner_id: str
+    family_member_id: str | None = None
+    test_key: str
+    display_name: str
+    value: float | None = None
+    unit: str | None = None
+    flag: str | None = None
+    measured_at: date | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentVersionOut(BaseModel):
+    id: str
+    document_id: str
+    version_no: int
+    title: str | None = None
+    notes: str | None = None
+    visit_date: date | None = None
+    doctor_name: str | None = None
+    hospital: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentUpdateIn(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=255)
+    notes: str | None = None
+    visit_date: date | None = None
+    doctor_name: str | None = None
+    hospital: str | None = None
+    category: str | None = None
+    report_kind: str | None = None
+
+
+class PrescriptionTrendOut(BaseModel):
+    medicine: str
+    entries: list = []  # [{date, dosage, frequency, duration, doctor, visit_id}]

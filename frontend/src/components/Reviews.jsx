@@ -4,7 +4,7 @@ import { Avatar } from './People'
 
 export function Stars({ value, size = 16 }) {
   return (
-    <span style={{ color: '#d97706', fontSize: size, letterSpacing: 2 }}>
+    <span style={{ color: '#8a6d3b', fontSize: size, letterSpacing: 2 }}>
       {[1, 2, 3, 4, 5].map((i) => (i <= Math.round(value || 0) ? '★' : '☆')).join('')}
     </span>
   )
@@ -15,7 +15,7 @@ export function StarPicker({ value, onChange }) {
     <span>
       {[1, 2, 3, 4, 5].map((i) => (
         <button key={i} type="button" onClick={() => onChange(i)}
-          style={{ background: 'none', border: 0, cursor: 'pointer', fontSize: 30, color: i <= value ? '#d97706' : '#d6d3d1', padding: 2, boxShadow: 'none' }}>
+          style={{ background: 'none', border: 0, cursor: 'pointer', fontSize: 30, color: i <= value ? '#8a6d3b' : '#d6d3d1', padding: 2, boxShadow: 'none' }}>
           ★
         </button>
       ))}
@@ -88,8 +88,8 @@ export function DoctorReviews({ doctorId, refreshKey }) {
   return (
     <div>
       <div style={s.avgBox}>
-        <div style={{ fontSize: 44, fontWeight: 800, color: '#115e59' }}>{rating?.average ?? '—'}</div>
-        <div><Stars value={rating?.average || 0} size={20} /><div style={{ color: '#5f6f6a' }}>{rating?.count || 0} reviews</div></div>
+        <div style={{ fontSize: 44, fontWeight: 800, color: '#1a2e45' }}>{rating?.average ?? '—'}</div>
+        <div><Stars value={rating?.average || 0} size={20} /><div style={{ color: '#5d6b7a' }}>{rating?.count || 0} reviews</div></div>
       </div>
       {items.map((r) => (
         <div key={r.id} style={s.card}>
@@ -108,7 +108,7 @@ export function DoctorReviews({ doctorId, refreshKey }) {
 const s = {
   form: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14, alignItems: 'flex-start' },
   input: { padding: 8, fontSize: 14, fontFamily: 'inherit', width: '100%' },
-  btn: { padding: '8px 16px', background: 'linear-gradient(90deg,#fbbf24,#d97706)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
-  card: { border: '1px solid #f1f5f4', borderLeft: '4px solid #d97706', borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: '#fff' },
+  btn: { padding: '8px 16px', background: '#8a6d3b', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
+  card: { border: '1px solid #f1f5f4', borderLeft: '4px solid #8a6d3b', borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: '#fff' },
   avgBox: { display: 'flex', gap: 16, alignItems: 'center', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: 14, marginBottom: 12 },
 }

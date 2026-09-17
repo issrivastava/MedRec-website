@@ -67,6 +67,22 @@ class PatientProfile(Base):
     allergies: Mapped[str | None] = mapped_column(Text, nullable=True)
     chronic_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     emergency_contact: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Detailed clinical history
+    height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    marital_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    occupation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smoking_status: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    alcohol_use: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    diet: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    activity_level: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    past_illnesses: Mapped[str | None] = mapped_column(Text, nullable=True)
+    surgeries: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_medications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    immunizations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    family_history_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    menstrual_history: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mental_health: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="patient_profile")
 
@@ -102,6 +118,8 @@ class Document(Base):
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     doc_type: Mapped[str] = mapped_column(String(50), default="report")  # report|prescription|lab|scan|other
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)  # lab|imaging|cardiology|prescription|other
+    report_kind: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)  # cbc|xray|mri|tsh|lft|...
     doctor_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     hospital: Mapped[str | None] = mapped_column(String(255), nullable=True)
     visit_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
@@ -136,6 +154,55 @@ class AiSummary(Base):
     document: Mapped[Document] = relationship(back_populates="ai_summary")
 
 
+class LabResult(Base):
+    """Persisted per-report lab values for trends + data analysis."""
+    __tablename__ = "lab_results"
+
+    id: Mapped[str] = _uuid_col()
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    test_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    flag: Mapped[str | None] = mapped_column(String(20), nullable=True)  # low|high|normal
+    measured_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class DocumentVersion(Base):
+    """Edit history for each report/prescription."""
+    __tablename__ = "document_versions"
+
+    id: Mapped[str] = _uuid_col()
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    visit_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    doctor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    hospital: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AiSummaryHistory(Base):
+    """Keeps every AI summary generation per report (language + model)."""
+    __tablename__ = "ai_summary_history"
+
+    id: Mapped[str] = _uuid_col()
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    key_findings: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    language: Mapped[str] = mapped_column(String(10), default="en")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ContactMessage(Base):
     """Public 'Contact Us' submissions."""
     __tablename__ = "contact_messages"
@@ -164,7 +231,43 @@ class FamilyMember(Base):
     allergies: Mapped[str | None] = mapped_column(Text, nullable=True)
     chronic_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Detailed clinical history (mirrors PatientProfile)
+    height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    marital_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    occupation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    smoking_status: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    alcohol_use: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    diet: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    activity_level: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    past_illnesses: Mapped[str | None] = mapped_column(Text, nullable=True)
+    surgeries: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_medications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    immunizations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    family_history_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    menstrual_history: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mental_health: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FamilyHistoryEntry(Base):
+    """Structured family history: condition per relative, per profile."""
+    __tablename__ = "family_history_entries"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # null => self profile, else a family member profile
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    relation: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g. father, mother, sibling
+    condition: Mapped[str] = mapped_column(String(255), nullable=False)  # e.g. diabetes, hypertension
+    age_onset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="unknown")  # alive|deceased|unknown
+    severity: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    year_diagnosed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class VisitNote(Base):
@@ -174,6 +277,9 @@ class VisitNote(Base):
     id: Mapped[str] = _uuid_col()
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     note_type: Mapped[str] = mapped_column(String(20), default="note")  # note|prescription
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -201,6 +307,9 @@ class Appointment(Base):
     id: Mapped[str] = _uuid_col()
     doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
@@ -229,6 +338,9 @@ class HealthAlert(Base):
 
     id: Mapped[str] = _uuid_col()
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     document_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     test_name: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[float | None] = mapped_column(Float, nullable=True)

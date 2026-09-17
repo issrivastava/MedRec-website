@@ -91,9 +91,9 @@ export default function ForgotPassword() {
 const s = {
   form: { display: 'flex', flexDirection: 'column', gap: 10 },
   input: { padding: 10, fontSize: 15 },
-  btn: { padding: 10, background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer' },
-  ghostBtn: { padding: 10, background: '#fff', border: '1px solid #0f766e', color: '#0f766e', cursor: 'pointer' },
-  linkBtn: { background: 'none', border: 0, color: '#0f766e', cursor: 'pointer', padding: 0 },
+  btn: { padding: 10, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
+  ghostBtn: { padding: 10, background: '#fff', border: '1px solid #1e3a5f', color: '#1e3a5f', cursor: 'pointer' },
+  linkBtn: { background: 'none', border: 0, color: '#1e3a5f', cursor: 'pointer', padding: 0 },
   note: { background: '#fff8e6', border: '1px solid #f0d48a', padding: 10, borderRadius: 6 },
-  hint: { background: '#f0fdfa', border: '1px solid #99f6e4', padding: 10, borderRadius: 6, fontSize: 13 },
+  hint: { background: '#eef2f7', border: '1px solid #c9d4e2', padding: 10, borderRadius: 6, fontSize: 13 },
 }

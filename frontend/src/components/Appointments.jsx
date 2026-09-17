@@ -109,8 +109,8 @@ export default function Appointments({ role, doctors, patientId }) {
 const s = {
   form: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 },
   input: { padding: 8, fontSize: 14 },
-  btn: { padding: '8px 14px', background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer', alignSelf: 'flex-start' },
+  btn: { padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', alignSelf: 'flex-start' },
   row: { display: 'flex', justifyContent: 'space-between', gap: 8, border: '1px solid #f1f5f4', borderRadius: 10, padding: '10px 12px', marginBottom: 8, flexWrap: 'wrap', background: '#fff' },
-  chip: { display: 'inline-block', background: '#ccfbf1', border: '1px solid #99f6e4', borderRadius: 12, padding: '4px 10px', margin: '0 6px 6px 0' },
-  x: { marginLeft: 6, cursor: 'pointer', border: 0, background: 'none', color: '#115e59', fontWeight: 700 },
+  chip: { display: 'inline-block', background: '#c9d4e2', border: '1px solid #c9d4e2', borderRadius: 12, padding: '4px 10px', margin: '0 6px 6px 0' },
+  x: { marginLeft: 6, cursor: 'pointer', border: 0, background: 'none', color: '#1a2e45', fontWeight: 700 },
 }

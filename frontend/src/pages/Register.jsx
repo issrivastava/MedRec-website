@@ -84,6 +84,6 @@ export default function Register() {
 const s = {
   form: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 },
   input: { padding: 10, fontSize: 15 },
-  btn: { padding: 10, background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer' },
+  btn: { padding: 10, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
   googleBtn: { width: '100%', padding: 10, background: '#fff', border: '1px solid #ccc', cursor: 'pointer', fontSize: 15, fontWeight: 600 },
 }

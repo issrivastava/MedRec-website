@@ -69,7 +69,7 @@ export function EmergencyButton({ compact = false }) {
       {open && (
         <div style={s.modal}>
           <h4 style={{ margin: '0 0 8px' }}>Send emergency alert</h4>
-          <p style={{ margin: '0 0 8px', fontSize: 13, color: '#5f6f6a' }}>
+          <p style={{ margin: '0 0 8px', fontSize: 13, color: '#5d6b7a' }}>
             This notifies every linked doctor (in-app + email) and texts your emergency contact.
             Only use it in a real emergency.
           </p>
@@ -99,7 +99,7 @@ export function EmergencyButton({ compact = false }) {
           {history.slice(0, 5).map((h) => (
             <div key={h.id} style={s.histRow}>
               <span>{h.status === 'active' ? '🔴' : '✅'} {new Date(h.created_at).toLocaleString()}</span>
-              <span style={{ color: '#5f6f6a' }}>{h.message || 'SOS alert'}{h.latitude ? ` · 📍 ${h.latitude.toFixed(3)}, ${h.longitude.toFixed(3)}` : ''}</span>
+              <span style={{ color: '#5d6b7a' }}>{h.message || 'SOS alert'}{h.latitude ? ` · 📍 ${h.latitude.toFixed(3)}, ${h.longitude.toFixed(3)}` : ''}</span>
               <span className={h.status === 'active' ? 'pill pill-bad' : 'pill pill-ok'}>{h.status}</span>
             </div>
           ))}
@@ -143,7 +143,7 @@ export function EmergencyInbox({ refreshKey }) {
         <div key={a.id} style={{ ...s.histRow, borderLeft: a.status === 'active' ? '4px solid #dc2626' : '4px solid #16a34a' }}>
           <div>
             <b>{a.status === 'active' ? '🔴' : '✅'} {a.patient_name}</b>{' '}
-            <small style={{ color: '#5f6f6a' }}>{a.patient_email} · {new Date(a.created_at).toLocaleString()}</small>
+            <small style={{ color: '#5d6b7a' }}>{a.patient_email} · {new Date(a.created_at).toLocaleString()}</small>
             <div style={{ fontSize: 14 }}>{a.message || 'SOS alert — patient needs help.'}</div>
             {a.latitude && (
               <div style={{ fontSize: 13 }}>
@@ -163,7 +163,7 @@ export function EmergencyInbox({ refreshKey }) {
 }
 
 const s = {
-  sosBtn: { padding: '10px 18px', background: 'linear-gradient(90deg,#ef4444,#dc2626)', color: '#fff', border: 0, borderRadius: 10, cursor: 'pointer', fontWeight: 800, fontSize: 15, boxShadow: '0 2px 10px rgba(220,38,38,.35)' },
+  sosBtn: { padding: '10px 18px', background: '#8b2e3c', color: '#fff', border: '1px solid #6d2330', borderRadius: 4, cursor: 'pointer', fontWeight: 700, fontSize: 15 },
   ghostBtn: { padding: '8px 12px', cursor: 'pointer', background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8 },
   resolveBtn: { padding: '6px 12px', cursor: 'pointer', background: '#16a34a', color: '#fff', border: 0, borderRadius: 8, fontWeight: 700 },
   modal: { marginTop: 10, border: '2px solid #fecaca', background: '#fef2f2', borderRadius: 12, padding: 14 },

@@ -101,21 +101,24 @@ def _notify_view(db: Session, doctor: User, patient_id: str) -> None:
 
 
 @router.get("/patients/{patient_id}/documents")
-def patient_documents(patient_id: str, db: Session = Depends(get_db), user: User = Depends(require_doctor)):
+def patient_documents(patient_id: str, category: str | None = None, report_kind: str | None = None,
+                      db: Session = Depends(get_db), user: User = Depends(require_doctor)):
     if not _is_assigned(db, user.id, patient_id):
         raise HTTPException(status_code=403, detail="Patient not assigned to you")
     _notify_view(db, user, patient_id)
-    docs = (
-        db.query(Document)
-        .filter(Document.owner_id == patient_id)
-        .order_by(Document.visit_date.desc().nullslast(), Document.created_at.desc())
-        .all()
-    )
+    q = db.query(Document).filter(Document.owner_id == patient_id)
+    if category:
+        q = q.filter(Document.category == category)
+    if report_kind:
+        q = q.filter(Document.report_kind == report_kind)
+    docs = q.order_by(Document.visit_date.desc().nullslast(), Document.created_at.desc()).all()
     return [
         {
             "id": d.id, "owner_id": d.owner_id, "title": d.title, "doc_type": d.doc_type,
+            "category": getattr(d, "category", None), "report_kind": getattr(d, "report_kind", None),
             "doctor_name": d.doctor_name, "hospital": d.hospital,
             "visit_date": d.visit_date, "notes": d.notes,
+            "family_member_id": d.family_member_id,
             "file_mimetype": d.file_mimetype, "file_size": d.file_size,
             "has_summary": d.ai_summary is not None, "created_at": d.created_at,
         }

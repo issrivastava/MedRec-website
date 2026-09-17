@@ -71,7 +71,7 @@ export default function Profile() {
   return (
     <div style={s.wrap}>
       <h2 style={{ margin: '0 0 4px' }}>👤 My Profile</h2>
-      <p style={{ color: '#5f6f6a', margin: '0 0 16px' }}>Your public identity across MedRec.</p>
+      <p style={{ color: '#5d6b7a', margin: '0 0 16px' }}>Your public identity across MedRec.</p>
       <div className="cols-2" style={{ alignItems: 'start' }}>
         <section style={s.card}>
           <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
@@ -106,7 +106,7 @@ export default function Profile() {
 
       <section style={{ ...s.card, borderLeftColor: '#dc2626', marginTop: 16 }}>
         <h3 style={{ marginTop: 0, color: '#dc2626' }}>⚠ Danger zone — delete my account</h3>
-        <p style={{ color: '#5f6f6a', fontSize: 14 }}>
+        <p style={{ color: '#5d6b7a', fontSize: 14 }}>
           Permanently removes your profile, documents, appointments, prescriptions,
           family members, alerts and notifications. This cannot be undone.
           {firebaseConfigured ? ' Your Firebase/Google login is unlinked too.' : ''}
@@ -134,11 +134,11 @@ export default function Profile() {
 
 const s = {
   wrap: { width: '100%', padding: '26px 30px 40px' },
-  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #0f766e', borderRadius: 12, padding: 18, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)' },
+  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 18, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)' },
   bigAvatar: { width: 96, height: 96, borderRadius: '50%', objectFit: 'cover' },
-  bigFallback: { width: 96, height: 96, borderRadius: '50%', background: '#0f766e', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 700 },
+  bigFallback: { width: 96, height: 96, borderRadius: '50%', background: '#1e3a5f', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 700 },
   input: { padding: 8, fontSize: 15, width: '100%', marginTop: 4 },
-  btn: { padding: '8px 14px', background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer' },
+  btn: { padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
   dangerBtn: { padding: '8px 14px', background: '#dc2626', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
   smallBtn: { padding: '6px 10px', cursor: 'pointer' },
   uploadLabel: { display: 'inline-block', padding: '6px 12px', background: '#eee', borderRadius: 4, cursor: 'pointer', marginTop: 6 },

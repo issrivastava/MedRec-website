@@ -26,6 +26,7 @@ def _appt_out(db: Session, a: Appointment) -> dict:
     d = db.query(User).filter_by(id=a.doctor_id).first()
     p = db.query(User).filter_by(id=a.patient_id).first()
     return {"id": a.id, "doctor_id": a.doctor_id, "patient_id": a.patient_id,
+            "family_member_id": getattr(a, "family_member_id", None),
             "doctor_name": d.full_name if d else None, "patient_name": p.full_name if p else None,
             "date": a.date, "start_time": a.start_time.strftime("%H:%M"),
             "end_time": a.end_time.strftime("%H:%M"), "reason": a.reason,
@@ -80,6 +81,10 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
         raise HTTPException(status_code=403, detail="Doctor not assigned to you")
     if data.date < date.today():
         raise HTTPException(status_code=400, detail="Cannot book in the past")
+    if data.family_member_id:
+        from app.models.tables import FamilyMember
+        if not db.query(FamilyMember).filter_by(id=data.family_member_id, owner_id=user.id).first():
+            raise HTTPException(status_code=400, detail="Unknown family member")
     start = _parse(data.start_time)
     slot = db.query(AvailabilitySlot).filter_by(
         doctor_id=data.doctor_id, weekday=data.date.weekday(), start_time=start).first()
@@ -90,7 +95,8 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
     if clash:
         raise HTTPException(status_code=400, detail="Slot already booked")
     a = Appointment(doctor_id=data.doctor_id, patient_id=user.id, date=data.date,
-                    start_time=start, end_time=slot.end_time, reason=data.reason)
+                    start_time=start, end_time=slot.end_time, reason=data.reason,
+                    family_member_id=data.family_member_id)
     db.add(a)
     db.commit()
     db.refresh(a)

@@ -82,11 +82,11 @@ export default function Admin() {
 const s = {
   wrap: { width: '100%', padding: '26px 30px 40px' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginBottom: 16 },
-  stat: { background: '#fff', border: '1px solid #99f6e4', borderRadius: 8, padding: 14, textAlign: 'center' },
-  num: { fontSize: 28, fontWeight: 800, color: '#0f766e' },
+  stat: { background: '#fff', border: '1px solid #c9d4e2', borderRadius: 8, padding: 14, textAlign: 'center' },
+  num: { fontSize: 28, fontWeight: 800, color: '#1e3a5f' },
   card: { border: '1px solid #e5e5e5', borderRadius: 8, padding: 16, marginBottom: 16, background: '#fff' },
   input: { padding: 8, fontSize: 14 },
-  btn: { padding: '8px 14px', background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer' },
+  btn: { padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
   row: { display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #eee', padding: '8px 0', flexWrap: 'wrap' },
   msg: { borderBottom: '1px solid #eee', padding: '8px 0' },
 }

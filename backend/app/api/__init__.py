@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from app.api.routes import auth, patients, doctors, documents, assignments, contact
 from app.api.routes import visits, scheduling, family, timeline, alerts, notifications, admin, export_pdf
-from app.api.routes import reviews, emergency
+from app.api.routes import reviews, emergency, history, analytics
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -20,3 +20,5 @@ api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(export_pdf.router, prefix="/export", tags=["export"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(emergency.router, prefix="/emergency", tags=["emergency"])
+api_router.include_router(history.router, prefix="/history", tags=["history"])
+api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

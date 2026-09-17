@@ -14,6 +14,7 @@ def _out(db: Session, v: VisitNote) -> dict:
     doc = db.query(User).filter_by(id=v.doctor_id).first()
     d = {c: getattr(v, c) for c in ("id", "patient_id", "doctor_id", "note_type", "title", "content",
                                     "medicines", "visit_date", "follow_up_date", "created_at")}
+    d["family_member_id"] = getattr(v, "family_member_id", None)
     d["doctor_name"] = doc.full_name if doc else None
     return d
 
@@ -22,11 +23,16 @@ def _out(db: Session, v: VisitNote) -> dict:
 def create_note(data: VisitNoteIn, db: Session = Depends(get_db), user: User = Depends(require_doctor)):
     if not is_assigned(db, user.id, data.patient_id):
         raise HTTPException(status_code=403, detail="Patient not assigned to you")
+    if data.family_member_id:
+        from app.models.tables import FamilyMember
+        if not db.query(FamilyMember).filter_by(id=data.family_member_id, owner_id=data.patient_id).first():
+            raise HTTPException(status_code=400, detail="Unknown family member")
     v = VisitNote(
         patient_id=data.patient_id, doctor_id=user.id, note_type=data.note_type,
         title=data.title, content=data.content,
         medicines=[m.model_dump() for m in data.medicines] if data.medicines else None,
         visit_date=data.visit_date, follow_up_date=data.follow_up_date,
+        family_member_id=data.family_member_id,
     )
     db.add(v)
     db.commit()
@@ -41,18 +47,24 @@ def create_note(data: VisitNoteIn, db: Session = Depends(get_db), user: User = D
 
 
 @router.get("/my", response_model=list[VisitNoteOut])
-def my_notes(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def my_notes(family_member_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "patient":
         raise HTTPException(status_code=403, detail="Patients only")
-    rows = db.query(VisitNote).filter_by(patient_id=user.id).order_by(VisitNote.created_at.desc()).all()
+    q = db.query(VisitNote).filter_by(patient_id=user.id)
+    if family_member_id:
+        q = q.filter_by(family_member_id=family_member_id)
+    rows = q.order_by(VisitNote.created_at.desc()).all()
     return [_out(db, v) for v in rows]
 
 
 @router.get("/patient/{patient_id}", response_model=list[VisitNoteOut])
-def patient_notes(patient_id: str, db: Session = Depends(get_db), user: User = Depends(require_doctor)):
+def patient_notes(patient_id: str, family_member_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(require_doctor)):
     if not is_assigned(db, user.id, patient_id):
         raise HTTPException(status_code=403, detail="Patient not assigned to you")
-    rows = db.query(VisitNote).filter_by(patient_id=patient_id).order_by(VisitNote.created_at.desc()).all()
+    q = db.query(VisitNote).filter_by(patient_id=patient_id)
+    if family_member_id:
+        q = q.filter_by(family_member_id=family_member_id)
+    rows = q.order_by(VisitNote.created_at.desc()).all()
     return [_out(db, v) for v in rows]
 
 

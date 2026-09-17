@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
 import DashboardLayout from '../components/DashboardLayout'
+import { kindsForCategory, kindLabel, kindIcon } from '../reportKinds'
 import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import { LabRanges } from '../components/Alerts'
@@ -29,6 +30,7 @@ export default function DoctorDashboard() {
   const [emgCount, setEmgCount] = useState(0)
   const [sosMsg, setSosMsg] = useState('')
   const [sosFeedback, setSosFeedback] = useState('')
+  const [kindFilter, setKindFilter] = useState({ category: '', report_kind: '' })
 
   const loadBase = async () => {
     const [{ data: p }, { data: list }] = await Promise.all([
@@ -53,12 +55,15 @@ export default function DoctorDashboard() {
 
   useEffect(() => {
     if (!selected) return
+    const params = {}
+    if (kindFilter.category) params.category = kindFilter.category
+    if (kindFilter.report_kind) params.report_kind = kindFilter.report_kind
     Promise.all([
       api.get(`/api/doctors/patients/${selected}/info`),
-      api.get(`/api/doctors/patients/${selected}/documents`),
+      api.get(`/api/doctors/patients/${selected}/documents`, { params }),
       api.get(`/api/labs/patients/${selected}/alerts`).catch(() => ({ data: [] })),
     ]).then(([{ data: i }, { data: d }, { data: a }]) => { setInfo(i); setDocs(d); setAlerts(a) }).catch(console.error)
-  }, [selected, patients])
+  }, [selected, patients, kindFilter])
 
   const saveProfile = async () => {
     await api.put('/api/doctors/me', profile)
@@ -182,11 +187,11 @@ export default function DoctorDashboard() {
         <div className="rise">
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-blue">🧑‍🤝‍🧑</span> Assigned Patients</h3>
-            <form onSubmit={addPatient} style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <form onSubmit={addPatient} className="inline-form">
               <input placeholder="Patient email to add" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} style={s.input} />
               <button style={s.primaryBtn}>Link patient</button>
             </form>
-            <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ ...s.input, minWidth: 300 }}>
+            <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ ...s.input, minWidth: 'min(300px,100%)', maxWidth: '100%' }}>
               <option value="">— Select patient —</option>
               {patients.map((p) => (
                 <option key={p.patient_id} value={p.patient_id}>{p.patient_name} ({p.patient_email})</option>
@@ -195,9 +200,9 @@ export default function DoctorDashboard() {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
               {patients.map((p) => (
                 <button key={p.patient_id} onClick={() => setSelected(p.patient_id)}
-                  style={{ ...s.patCard, borderColor: selected === p.patient_id ? '#0f766e' : '#e7e5e4' }}>
+                  style={{ ...s.patCard, borderColor: selected === p.patient_id ? '#1e3a5f' : '#e7e5e4' }}>
                   <Avatar seed={p.patient_id} name={p.patient_name} size={40} />
-                  <span style={{ textAlign: 'left' }}><b>{p.patient_name}</b><br /><small style={{ color: '#5f6f6a' }}>{p.patient_email}</small></span>
+                  <span style={{ textAlign: 'left' }}><b>{p.patient_name}</b><br /><small style={{ color: '#5d6b7a' }}>{p.patient_email}</small></span>
                 </button>
               ))}
             </div>
@@ -220,12 +225,26 @@ export default function DoctorDashboard() {
               </section>
               <section style={s.card}>
                 <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Records ({docs.length})</h3>
-                {docs.slice(0, 5).map((d) => (
+                <div className="toolbar-row">
+                  <select value={kindFilter.category} onChange={(e) => setKindFilter({ category: e.target.value, report_kind: '' })} style={s.input}>
+                    <option value="">All categories</option>
+                    <option value="lab">Pathology Lab</option>
+                    <option value="imaging">Radiology / Imaging</option>
+                    <option value="cardiology">Cardiac</option>
+                    <option value="prescription">Prescription & Clinical</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select value={kindFilter.report_kind} onChange={(e) => setKindFilter((f) => ({ ...f, report_kind: e.target.value }))} style={s.input}>
+                    <option value="">All kinds (X-Ray, CBC, MRI, TSH, LFT…)</option>
+                    {kindsForCategory(kindFilter.category).map((k) => <option key={k.key} value={k.key}>{k.icon} {k.label}</option>)}
+                  </select>
+                </div>
+                {docs.slice(0, 8).map((d) => (
                   <div key={d.id} className="doc-row">
-                    <span className="tile t-amber">📄</span>
+                    <span className={`tile ${kindIcon(d.report_kind, ['📄', 't-amber'])[1]}`}>{kindIcon(d.report_kind, ['📄', 't-amber'])[0]}</span>
                     <div className="grow">
-                      <b>{d.title}</b> <span className="pill pill-info">{d.doc_type}</span>
-                      <div style={{ fontSize: 13, color: '#5f6f6a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}</div>
+                      <b>{d.title}</b> <span className="pill pill-info">{kindLabel(d.report_kind) || d.doc_type}</span>
+                      <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}</div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                         <button onClick={() => summarize(d.id)}>AI summary</button>
                         <button onClick={() => downloadDocument(d.id, d.title)}>View</button>
@@ -284,14 +303,14 @@ export default function DoctorDashboard() {
 }
 
 const s = {
-  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #0f766e', borderRadius: 12, padding: 18, marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)' },
-  grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 },
-  input: { padding: 8, fontSize: 14 },
+  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 'clamp(12px,3vw,18px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)', minWidth: 0 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(220px,100%),1fr))', gap: 8, marginBottom: 8 },
+  input: { padding: 8, fontSize: 14, minWidth: 0, maxWidth: '100%' },
   patCard: { display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fff', border: '2px solid #e7e5e4', borderRadius: 14, padding: '8px 14px 8px 8px', cursor: 'pointer' },
-  primaryBtn: { padding: '8px 16px', background: 'linear-gradient(90deg,#14b8a6,#0f766e)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
+  primaryBtn: { padding: '8px 16px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
   doc: { borderBottom: '1px solid #eee', padding: '8px 0' },
-  sosBtn: { padding: '8px 16px', background: 'linear-gradient(90deg,#ef4444,#dc2626)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 800 },
-  alert: { background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8, padding: 8, marginBottom: 6 },
-  summary: { background: '#f0fdfa', border: '1px solid #99f6e4', padding: 12, borderRadius: 8, marginTop: 10 },
+  sosBtn: { padding: '8px 16px', background: '#8b2e3c', color: '#fff', border: '1px solid #6d2330', cursor: 'pointer', fontWeight: 700 },
+  alert: { background: '#eef2f7', border: '1px solid #c9d4e2', borderRadius: 8, padding: 8, marginBottom: 6 },
+  summary: { background: '#eef2f7', border: '1px solid #c9d4e2', padding: 12, borderRadius: 8, marginTop: 10 },
   row: { display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #eee', padding: '8px 0', flexWrap: 'wrap', alignItems: 'center' },
 }

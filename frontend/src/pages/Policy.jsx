@@ -47,10 +47,10 @@ export default function Policy() {
 
 const s = {
   wrap: { width: '100%', padding: '26px 30px 40px' },
-  title: { color: '#115e59', margin: '0 0 4px' },
-  sub: { color: '#5f6f6a', margin: '0 0 16px' },
+  title: { color: '#1a2e45', margin: '0 0 4px' },
+  sub: { color: '#5d6b7a', margin: '0 0 16px' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14 },
-  card: { border: '1px solid #99f6e4', borderTop: '4px solid #0f766e', borderRadius: 12, padding: 18, background: '#fff' },
-  h: { color: '#0f766e', margin: '0 0 8px' },
+  card: { border: '1px solid #c9d4e2', borderTop: '4px solid #1e3a5f', borderRadius: 12, padding: 18, background: '#fff' },
+  h: { color: '#1e3a5f', margin: '0 0 8px' },
   p: { margin: 0, lineHeight: 1.7 },
 }
