@@ -1,0 +1,23 @@
+commands
+run these cmd on cmd
+you will require different terminals for that
+
+To commot
+ git add .
+git commit -m "changes here"
+git push -u origin main
+
+
+frontend
+npm installis 
+npm run deploy
+
+
+backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --port 8000
+
+
+AI
+ollama pull llama3.1:8b
+ollama serve
