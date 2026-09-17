@@ -43,7 +43,7 @@ export default function Contact() {
           <h3 style={{ marginTop: 0 }}>Other ways to reach us</h3>
           <p>📧 support@medrec.app</p>
           <p>🕘 Mon–Sat, 9am–7pm IST</p>
-          <p>🚨 Medical emergency? Call local emergency services — MedRec is not for urgent care.</p>
+          <p>🚨 Medical emergency? Hit the <b>SOS button</b> in your patient dashboard to alert your doctors instantly — and for life-threatening situations always call local emergency services too.</p>
         </aside>
       </div>
     </div>

@@ -3,9 +3,15 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   updateProfile,
+  sendPasswordResetEmail,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
 } from 'firebase/auth'
 import api from '../api'
 import { auth, googleProvider, isFirebaseConfigured } from '../firebase'
@@ -58,7 +64,41 @@ export function AuthProvider({ children }) {
   }
 
   const googleLogin = async () => {
-    const { user: fb } = await signInWithPopup(auth, googleProvider)
+    try {
+      const { user: fb } = await signInWithPopup(auth, googleProvider)
+      setFirebaseUser(fb)
+      return exchange(fb)
+    } catch (e) {
+      // Popup blocked / unsupported (e.g. some mobile browsers): fall back to
+      // full-page redirect — Firebase returns to this app afterwards.
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported') {
+        await signInWithRedirect(auth, googleProvider)
+        return new Promise(() => {}) // never resolves; page navigates away
+      }
+      throw e
+    }
+  }
+
+  // ---- Firebase passwordless email link (the link IS mailed by Firebase) ----
+  const sendEmailLink = async (email) => {
+    if (!isFirebaseConfigured) throw new Error('Firebase is not configured')
+    await sendSignInLinkToEmail(auth, email, {
+      url: `${window.location.origin}/login`,
+      handleCodeInApp: true,
+    })
+    localStorage.setItem('medrec_email_for_link', email)
+  }
+
+  const isEmailLink = (href) => {
+    if (!isFirebaseConfigured) return false
+    try { return isSignInWithEmailLink(auth, href || window.location.href) } catch { return false }
+  }
+
+  const completeEmailLink = async (email) => {
+    const { user: fb } = await signInWithEmailLink(auth, email, window.location.href)
+    localStorage.removeItem('medrec_email_for_link')
+    // Clean the one-time code out of the address bar
+    try { window.history.replaceState({}, '', '/login') } catch { /* ignore */ }
     setFirebaseUser(fb)
     return exchange(fb)
   }
@@ -92,9 +132,47 @@ export function AuthProvider({ children }) {
     try { if (auth) await signOut(auth) } catch { /* ignore */ }
     localStorage.removeItem('medrec_token')
     localStorage.removeItem('medrec_user')
+    localStorage.removeItem('medrec_email_for_link')
     setUser(null)
     setFirebaseUser(null)
     setNeedsRole(false)
+  }
+
+  const refreshUser = async () => {
+    const { data } = await api.get('/api/auth/me')
+    setUser(data)
+    localStorage.setItem('medrec_user', JSON.stringify(data))
+    return data
+  }
+
+  // ---- Email OTP (passwordless) + forgot password via backend ----
+  const requestOtp = async (email, purpose = 'login') => {
+    const { data } = await api.post('/api/auth/otp/request', { email, purpose })
+    return data // {sent_via, expires_in_minutes, dev_code?}
+  }
+
+  const verifyOtpLogin = async (email, code) => {
+    const { data } = await api.post('/api/auth/otp/verify', { email, code, purpose: 'login' })
+    saveSession(data)
+    setUser(data.user)
+    return data.user
+  }
+
+  const resetPasswordWithOtp = async (email, code, new_password) => {
+    const { data } = await api.post('/api/auth/reset-password', { email, code, new_password })
+    return data
+  }
+
+  // Firebase-hosted password reset email (only when Firebase is configured).
+  const firebasePasswordReset = async (email) => {
+    if (!isFirebaseConfigured) throw new Error('Firebase is not configured')
+    await sendPasswordResetEmail(auth, email)
+  }
+
+  // ---- Delete my account ----
+  const deleteAccount = async (confirmPayload) => {
+    await api.delete('/api/auth/me', { data: confirmPayload })
+    await logout()
   }
 
   // Restore session: valid local token wins; else resume Firebase session silently
@@ -114,6 +192,15 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(auth, async (fb) => {
       setFirebaseUser(fb)
       try {
+        // Returning from a Google redirect sign-in? Finish the MedRec exchange.
+        try {
+          const redir = await getRedirectResult(auth)
+          if (redir?.user) {
+            await exchange(redir.user).catch(() => {}) // needsRole may be set inside
+            setLoading(false)
+            return
+          }
+        } catch { /* no redirect result — continue normally */ }
         const token = localStorage.getItem('medrec_token')
         if (token) {
           const { data } = await api.get('/api/auth/me')
@@ -138,7 +225,10 @@ export function AuthProvider({ children }) {
       user, firebaseUser, loading, needsRole, setNeedsRole,
       firebaseConfigured: isFirebaseConfigured,
       firebaseLogin, firebaseRegister, googleLogin, completeRole,
-      login, register, logout,
+      sendEmailLink, isEmailLink, completeEmailLink,
+      login, register, logout, refreshUser,
+      requestOtp, verifyOtpLogin, resetPasswordWithOtp, firebasePasswordReset,
+      deleteAccount,
     }}>
       {children}
     </AuthContext.Provider>

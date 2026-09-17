@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str = ""
     MAIL_FROM: str = ""
     SMS_WEBHOOK_URL: str = ""  # POST {to, message} as JSON when set
+    OTP_EXPIRE_MINUTES: int = 10  # how long an email OTP stays valid
+    OTP_RESEND_SECONDS: int = 60  # min gap between OTP requests per email+purpose
+    OTP_MAX_ATTEMPTS: int = 5  # wrong-code attempts before the code is voided
+    OTP_DEV_ECHO: bool = True  # when True AND no MAIL_HOST is set, return the OTP in the API response for local dev
 
     class Config:
         env_file = ".env"

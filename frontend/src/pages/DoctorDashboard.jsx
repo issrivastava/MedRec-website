@@ -8,6 +8,7 @@ import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import { LabRanges } from '../components/Alerts'
 import { DoctorReviews } from '../components/Reviews'
+import { EmergencyInbox } from '../components/EmergencyButton'
 
 export default function DoctorDashboard() {
   const { user } = useAuth()
@@ -25,6 +26,9 @@ export default function DoctorDashboard() {
   const [appts, setAppts] = useState([])
   const [noteCount, setNoteCount] = useState(0)
   const [myRating, setMyRating] = useState(null)
+  const [emgCount, setEmgCount] = useState(0)
+  const [sosMsg, setSosMsg] = useState('')
+  const [sosFeedback, setSosFeedback] = useState('')
 
   const loadBase = async () => {
     const [{ data: p }, { data: list }] = await Promise.all([
@@ -35,6 +39,8 @@ export default function DoctorDashboard() {
     if (list.length && !selected) setSelected(list[0].patient_id)
     const { data: a } = await api.get('/api/scheduling/appointments/my').catch(() => ({ data: [] }))
     setAppts(a)
+    const { data: emg } = await api.get('/api/emergency/assigned').catch(() => ({ data: [] }))
+    setEmgCount(emg.filter((x) => x.status === 'active').length)
     const { data: rt } = await api.get(`/api/reviews/doctor/${user.id}/rating`).catch(() => ({ data: null }))
     setMyRating(rt)
     const counts = await Promise.all(
@@ -71,6 +77,21 @@ export default function DoctorDashboard() {
     setSummary(data)
   }
 
+  const raiseSosForPatient = async (e) => {
+    e.preventDefault()
+    setSosFeedback('')
+    if (!selected) { setSosFeedback('Select a patient in the Patients tab first.'); return }
+    try {
+      await api.post('/api/emergency/alert', { message: sosMsg || null, patient_id: selected })
+      setSosFeedback(`🚨 SOS raised for ${selName} — patient, emergency contact and fellow doctors notified.`)
+      setSosMsg('')
+      const { data: emg } = await api.get('/api/emergency/assigned').catch(() => ({ data: [] }))
+      setEmgCount(emg.filter((x) => x.status === 'active').length)
+    } catch (err) {
+      setSosFeedback(err.response?.data?.detail || 'Could not raise SOS')
+    }
+  }
+
   const booked = appts.filter((a) => a.status === 'booked')
   const today = new Date().toISOString().slice(0, 10)
   const todays = booked.filter((a) => a.date === today)
@@ -79,6 +100,7 @@ export default function DoctorDashboard() {
 
   const items = [
     { key: 'overview', label: 'Overview', icon: '🏠' },
+    { key: 'emergency', label: 'Emergency', icon: '🚨', badge: emgCount },
     { key: 'patients', label: 'Patients', icon: '🧑‍🤝‍🧑', badge: patients.length },
     { key: 'rx', label: 'Prescriptions', icon: '✍️' },
     { key: 'schedule', label: 'Schedule', icon: '📅', badge: booked.length },
@@ -131,6 +153,28 @@ export default function DoctorDashboard() {
               <div style={{ marginTop: 8 }}><button onClick={saveProfile} style={s.primaryBtn}>Save</button></div>
             </section>
           </div>
+        </div>
+      )}
+
+      {tab === 'emergency' && (
+        <div className="rise">
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-rose">🆘</span> Raise SOS for a patient</h3>
+            {!selected
+              ? <div className="empty">Select a patient in the Patients tab first, then raise an SOS here.</div>
+              : (
+                <form onSubmit={raiseSosForPatient} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>Raising for: <b>{selName}</b></span>
+                  <input placeholder="What is happening? (optional)" value={sosMsg} onChange={(e) => setSosMsg(e.target.value)} style={{ ...s.input, flex: 1, minWidth: 220 }} />
+                  <button type="submit" style={s.sosBtn}>🚨 Raise SOS</button>
+                </form>
+              )}
+            {sosFeedback && <p style={{ color: sosFeedback.startsWith('🚨') ? 'green' : 'red' }}>{sosFeedback}</p>}
+          </section>
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-rose">🚨</span> Patient SOS Alerts</h3>
+            <EmergencyInbox refreshKey={tab} />
+          </section>
         </div>
       )}
 
@@ -246,6 +290,7 @@ const s = {
   patCard: { display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fff', border: '2px solid #e7e5e4', borderRadius: 14, padding: '8px 14px 8px 8px', cursor: 'pointer' },
   primaryBtn: { padding: '8px 16px', background: 'linear-gradient(90deg,#14b8a6,#0f766e)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
   doc: { borderBottom: '1px solid #eee', padding: '8px 0' },
+  sosBtn: { padding: '8px 16px', background: 'linear-gradient(90deg,#ef4444,#dc2626)', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 800 },
   alert: { background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8, padding: 8, marginBottom: 6 },
   summary: { background: '#f0fdfa', border: '1px solid #99f6e4', padding: 12, borderRadius: 8, marginTop: 10 },
   row: { display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #eee', padding: '8px 0', flexWrap: 'wrap', alignItems: 'center' },

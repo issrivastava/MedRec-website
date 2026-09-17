@@ -264,3 +264,36 @@ class Review(Base):
     rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..5
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class OtpCode(Base):
+    """Short-lived email OTP for login / registration / password reset.
+
+    Only the SHA-256 hash of the code is stored. One row per request;
+    verification marks the newest non-expired, non-consumed row consumed.
+    """
+    __tablename__ = "otp_codes"
+
+    id: Mapped[str] = _uuid_col()
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # login|reset|register
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class EmergencyAlert(Base):
+    """Patient-triggered SOS. Notifies assigned doctors + emergency contact."""
+    __tablename__ = "emergency_alerts"
+
+    id: Mapped[str] = _uuid_col()
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active|resolved
+    resolved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

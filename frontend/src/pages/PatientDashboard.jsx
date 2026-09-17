@@ -10,6 +10,7 @@ import Appointments from '../components/Appointments'
 import FamilyManager from '../components/FamilyManager'
 import { AlertsPanel } from '../components/Alerts'
 import { PatientReviews } from '../components/Reviews'
+import { EmergencyButton } from '../components/EmergencyButton'
 
 export default function PatientDashboard() {
   const { user } = useAuth()
@@ -128,6 +129,14 @@ export default function PatientDashboard() {
 
       {tab === 'overview' && (
         <div className="rise">
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-rose">🆘</span> Emergency SOS</h3>
+            <p style={{ fontSize: 13, color: '#5f6f6a', margin: '0 0 10px' }}>
+              One tap alerts all your linked doctors and texts your emergency contact
+              {profile?.emergency_contact ? <> (<b>{profile.emergency_contact}</b>)</> : ' — set one in Family & Info'}.
+            </p>
+            <EmergencyButton />
+          </section>
           <div className="stat-grid">
             <div className="gstat g-orange"><div className="num">{docs.length}</div><div className="lbl">Documents</div><span className="big-icon">📄</span></div>
             <div className="gstat g-teal"><div className="num">{upcoming.length}</div><div className="lbl">Upcoming visits</div><span className="big-icon">📅</span></div>

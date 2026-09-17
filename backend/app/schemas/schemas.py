@@ -339,3 +339,59 @@ class DoctorRatingOut(BaseModel):
     doctor_name: str | None = None
     average: float | None = None
     count: int = 0
+
+
+class OtpRequestIn(BaseModel):
+    email: EmailStr
+    purpose: str = Field(default="login", pattern="^(login|reset|register)$")
+
+
+class OtpRequestOut(BaseModel):
+    ok: bool = True
+    sent_via: str = "dev-log"
+    expires_in_minutes: int = 10
+    # Only present in local dev when no SMTP server is configured.
+    dev_code: str | None = None
+
+
+class OtpVerifyIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=10)
+    purpose: str = Field(default="login", pattern="^(login|reset|register)$")
+
+
+class ResetPasswordIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=10)
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class DeleteAccountIn(BaseModel):
+    confirm: str = Field(description='Type "DELETE" to confirm')
+    password: str | None = Field(default=None, description="Current password (local accounts)")
+
+
+class EmergencyAlertIn(BaseModel):
+    message: str | None = Field(default=None, max_length=1000)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    # Doctors/admins pass the assigned patient's id to raise an SOS for them.
+    # Patients omit it (alert is filed under themselves).
+    patient_id: str | None = None
+
+
+class EmergencyAlertOut(BaseModel):
+    id: str
+    patient_id: str
+    patient_name: str | None = None
+    patient_email: str | None = None
+    message: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    status: str
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -1,0 +1,22 @@
+# Virtual environments & Python cache
+backend/venv/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Node dependencies & builds
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+
+# Secrets & Environment variables
+*.env
+.env
+backend/firebase-service-account.json
+*firebase-service-account*.json
+
+# SQLite Databases
+*.db
+backend/*.db

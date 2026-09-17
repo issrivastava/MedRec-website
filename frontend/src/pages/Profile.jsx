@@ -4,10 +4,14 @@ import api, { avatarSrc } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 export default function Profile() {
-  const { user, refreshUser, logout } = useAuth()
+  const { user, refreshUser, logout, deleteAccount, firebaseConfigured } = useAuth()
   const [name, setName] = useState(user?.full_name || '')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [showDelete, setShowDelete] = useState(false)
+  const [delConfirm, setDelConfirm] = useState('')
+  const [delPassword, setDelPassword] = useState('')
+  const [deleting, setDeleting] = useState(false)
   const nav = useNavigate()
   const pic = avatarSrc(user)
   const dashboard = user?.role === 'doctor' ? '/doctor' : '/patient'
@@ -45,6 +49,25 @@ export default function Profile() {
     setMsg('Profile picture removed')
   }
 
+  const doDelete = async () => {
+    setMsg(''); setErr('')
+    if (delConfirm.trim().toUpperCase() !== 'DELETE') {
+      setErr('Type DELETE to confirm account deletion')
+      return
+    }
+    if (!window.confirm('Permanently delete your account and ALL MedRec data? This cannot be undone.')) return
+    setDeleting(true)
+    try {
+      const payload = { confirm: 'DELETE' }
+      if (delPassword) payload.password = delPassword
+      await deleteAccount(payload)
+      nav('/')
+    } catch (e) {
+      setErr(e.response?.data?.detail || 'Could not delete account')
+      setDeleting(false)
+    }
+  }
+
   return (
     <div style={s.wrap}>
       <h2 style={{ margin: '0 0 4px' }}>👤 My Profile</h2>
@@ -80,6 +103,31 @@ export default function Profile() {
           {err && <p style={{ color: 'red' }}>{err}</p>}
         </section>
       </div>
+
+      <section style={{ ...s.card, borderLeftColor: '#dc2626', marginTop: 16 }}>
+        <h3 style={{ marginTop: 0, color: '#dc2626' }}>⚠ Danger zone — delete my account</h3>
+        <p style={{ color: '#5f6f6a', fontSize: 14 }}>
+          Permanently removes your profile, documents, appointments, prescriptions,
+          family members, alerts and notifications. This cannot be undone.
+          {firebaseConfigured ? ' Your Firebase/Google login is unlinked too.' : ''}
+        </p>
+        {!showDelete
+          ? <button onClick={() => setShowDelete(true)} style={s.dangerBtn}>Delete my account…</button>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 420 }}>
+              <label>Type <b>DELETE</b> to confirm</label>
+              <input value={delConfirm} onChange={(e) => setDelConfirm(e.target.value)} placeholder="DELETE" style={s.input} />
+              <label>Current password <small style={{ color: '#888' }}>(local accounts — leave blank for Google sign-in)</small></label>
+              <input type="password" value={delPassword} onChange={(e) => setDelPassword(e.target.value)} placeholder="Current password (if any)" style={s.input} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={doDelete} disabled={deleting} style={s.dangerBtn}>
+                  {deleting ? 'Deleting…' : 'Yes, delete everything'}
+                </button>
+                <button onClick={() => { setShowDelete(false); setDelConfirm(''); setDelPassword('') }}>Cancel</button>
+              </div>
+            </div>
+          )}
+      </section>
     </div>
   )
 }
@@ -91,6 +139,7 @@ const s = {
   bigFallback: { width: 96, height: 96, borderRadius: '50%', background: '#0f766e', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 700 },
   input: { padding: 8, fontSize: 15, width: '100%', marginTop: 4 },
   btn: { padding: '8px 14px', background: '#0f766e', color: '#fff', border: 0, cursor: 'pointer' },
+  dangerBtn: { padding: '8px 14px', background: '#dc2626', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
   smallBtn: { padding: '6px 10px', cursor: 'pointer' },
   uploadLabel: { display: 'inline-block', padding: '6px 12px', background: '#eee', borderRadius: 4, cursor: 'pointer', marginTop: 6 },
 }

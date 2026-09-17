@@ -6,6 +6,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
 import PatientDashboard from './pages/PatientDashboard'
 import DoctorDashboard from './pages/DoctorDashboard'
 import Contact from './pages/Contact'
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/policy" element={<Policy />} />
               <Route path="/profile" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Profile /></ProtectedRoute>} />

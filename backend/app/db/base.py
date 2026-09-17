@@ -15,4 +15,6 @@ from app.models.tables import (  # noqa: F401
     HealthAlert,
     Notification,
     Review,
+    OtpCode,
+    EmergencyAlert,
 )

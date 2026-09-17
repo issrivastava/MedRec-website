@@ -21,4 +21,7 @@ if (isFirebaseConfigured) {
 }
 
 export { app, auth }
+
 export const googleProvider = new GoogleAuthProvider()
+// Always show the Google account chooser so shared devices pick the right account.
+googleProvider.setCustomParameters({ prompt: 'select_account' })

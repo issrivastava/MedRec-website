@@ -5,9 +5,12 @@ Stack: **FastAPI (Python) backend · React (Node/Vite) frontend · PostgreSQL ·
 ## Features
 - **Public Home page** (`/`): read about all features first, then login/register.
 - **Login / Logout / Register** with roles: `patient` and `doctor` (JWT). Logout button in the navbar + profile page.
-  Login is via **Firebase** (email/password + Google) — the app exchanges the
+  Login is via **Firebase** (email/password + Google + password-free email link) — the app exchanges the
   Firebase ID token at `POST /api/auth/firebase` for a MedRec session. The old
   local login still works as a dev fallback until Firebase keys are added.
+- **Email OTP + forgot password**: 6-digit codes via `POST /api/auth/otp/request` (mailed by SMTP when `MAIL_*` is set, shown on screen in local dev); passwordless OTP login and OTP password reset included.
+- **Delete my account**: `/profile` danger zone → `DELETE /api/auth/me` wipes the user and all their data.
+- **Emergency SOS**: patients tap SOS (optional GPS) → assigned doctors notified in-app/email + emergency contact SMSed; doctors can raise SOS for an assigned patient and resolve alerts from the Emergency tab.
 - **User profile + profile picture**: `/profile` page with avatar upload (PNG/JPG/WEBP, auto-resized), name edit, picture shown in the navbar.
 - **Contact Us** page (`/contact`, public): message stored via `POST /api/contact`.
 - **E-prescriptions / visit notes**: doctors write notes + medicines back to assigned patients (patients get notified).
@@ -108,7 +111,7 @@ docker exec -it medrec-ollama-1 ollama pull llama3.1:8b
 | GET/POST/DELETE | /api/assignments/my, /api/assignments, /{id} | any |
 
 ## Firebase login setup
-1. **Firebase console** (https://console.firebase.google.com) → create project → **Build → Authentication** → enable **Email/Password** and **Google** providers.
+1. **Firebase console** (https://console.firebase.google.com) → create project → **Build → Authentication** → enable **Email/Password** and **Google** providers. (Email/Password also powers the password-free **email sign-in link** — mailed by Firebase, no SMTP needed.)
 2. **Project settings → General → Your apps → Web app** → copy the config values into `frontend/.env`:
    ```
    VITE_FIREBASE_API_KEY=...
@@ -116,13 +119,13 @@ docker exec -it medrec-ollama-1 ollama pull llama3.1:8b
    VITE_FIREBASE_PROJECT_ID=...
    VITE_FIREBASE_APP_ID=...
    ```
-   Also add `http://localhost:5173` under **Authentication → Settings → Authorized domains**.
+   Also add `http://localhost:5173` under **Authentication → Settings → Authorized domains** (plus your deployed domain later, otherwise Google sign-in fails with `auth/unauthorized-domain`). If the browser blocks the Google popup, MedRec automatically retries with a full-page redirect.
 3. **Project settings → Service accounts → Generate new private key** → save as `backend/firebase-service-account.json` and set in `backend/.env`:
    ```
    FIREBASE_CREDENTIALS_PATH=./firebase-service-account.json
    ```
    (Never commit this file.)
-4. Restart backend + frontend. Login page now shows **Continue with Google** and Firebase email login. First-time Firebase users pick patient/doctor once; after that the backend returns a normal MedRec JWT and everything else works unchanged.
+4. **Restart backend + `npm run dev`** (Vite reads `.env` only at startup — the Google button stays hidden until you restart). Login page now shows **Continue with Google**, Firebase email login, and **Email me a sign-in link**. First-time Firebase users pick patient/doctor once; after that the backend returns a normal MedRec JWT and everything else works unchanged.
 
 ## Notes
 - Uploads live in `UPLOAD_DIR/<user_id>/` (default `./uploads`).
