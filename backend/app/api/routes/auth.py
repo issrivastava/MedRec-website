@@ -318,6 +318,7 @@ def delete_my_account(
         (T.ContactMessage, "user_id"),
         (T.Review, "patient_id"),
         (T.Review, "doctor_id"),
+        (T.SiteReview, "user_id"),
         (T.EmergencyAlert, "patient_id"),
         (T.AiSummary, "patient_id"),
     ):

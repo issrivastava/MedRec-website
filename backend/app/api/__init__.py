@@ -2,6 +2,10 @@ from fastapi import APIRouter
 from app.api.routes import auth, patients, doctors, documents, assignments, contact
 from app.api.routes import visits, scheduling, family, timeline, alerts, notifications, admin, export_pdf
 from app.api.routes import reviews, emergency, history, analytics
+from app.api.routes import medicines
+from app.api.routes import diseases
+from app.api.routes import hospitals
+from app.api.routes import assistant
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -22,3 +26,7 @@ api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(emergency.router, prefix="/emergency", tags=["emergency"])
 api_router.include_router(history.router, prefix="/history", tags=["history"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(medicines.router, prefix="/medicines", tags=["medicines"])
+api_router.include_router(diseases.router, prefix="/diseases", tags=["diseases"])
+api_router.include_router(hospitals.router, prefix="/hospitals", tags=["hospitals"])
+api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])

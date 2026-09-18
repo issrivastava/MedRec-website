@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import api, { downloadDocument, downloadExportPdf } from '../api'
+import api, { downloadDocument, downloadExportPdf, openDocumentInline } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
@@ -10,10 +10,12 @@ import { useProfile } from '../context/ProfileContext'
 import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import FamilyManager from '../components/FamilyManager'
+import MyClinicalHistory from '../components/MyClinicalHistory'
 import ReportAnalytics from '../components/ReportAnalytics'
 import { kindsForCategory, kindLabel, kindIcon } from '../reportKinds'
 import { AlertsPanel } from '../components/Alerts'
-import { PatientReviews } from '../components/Reviews'
+import { calcAge, shortId } from '../utils'
+import { MyReviews } from '../components/Reviews'
 import { EmergencyButton } from '../components/EmergencyButton'
 
 export default function PatientDashboard() {
@@ -33,6 +35,13 @@ export default function PatientDashboard() {
   const [lang, setLang] = useState('en')
   const [family, setFamily] = useState([])
   const [stats, setStats] = useState({ appts: [], alerts: 0, notes: 0 })
+  const photoRef = useRef(null)
+  const videoRef = useRef(null)
+  const fileRef = useRef(null)
+
+  // Local preview URL for the picked photo/video (revoked when replaced)
+  const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
   const load = async () => {
     const [{ data: p }, { data: d }, { data: l }, { data: f }] = await Promise.all([
@@ -89,7 +98,9 @@ export default function PatientDashboard() {
 
   const memberName = (id) => (family.find((m) => m.id === id) || {}).name
   const typeIcon = { report: ['📄', 't-blue'], prescription: ['🧾', 't-violet'], lab: ['🧪', 't-teal'], scan: ['🩻', 't-amber'], other: ['📁', 't-orange'] }
-  const iconFor = (d) => kindIcon(d.report_kind, typeIcon[d.doc_type] || typeIcon.other)
+  const iconFor = (d) => ((d.file_mimetype || '').startsWith('video/')
+    ? ['🎥', 't-rose']
+    : kindIcon(d.report_kind, typeIcon[d.doc_type] || typeIcon.other))
   const upcoming = stats.appts.filter((a) => a.status === 'booked')
   const firstName = user?.full_name ? user.full_name.split(' ')[0] : ''
 
@@ -98,9 +109,15 @@ export default function PatientDashboard() {
     setMsg('Profile saved')
   }
 
+  const pickFile = (e) => {
+    setFile(e.target.files[0] || null)
+    e.target.value = ''
+  }
+  const isVideoFile = (file?.type || '').startsWith('video/')
+
   const doUpload = async (e) => {
     e.preventDefault()
-    if (!file) return setMsg('Choose a file (scan/photo/PDF)')
+    if (!file) return setMsg('Choose a file — photo, video or PDF')
     const fd = new FormData()
     fd.append('file', file)
     Object.entries(upload).forEach(([k, v]) => { if (v) fd.append(k, v) })
@@ -134,8 +151,13 @@ export default function PatientDashboard() {
     { key: 'analytics', label: 'Analysis', icon: '📊' },
     { key: 'rx', label: 'Prescriptions', icon: '💊', badge: stats.notes },
     { key: 'appts', label: 'Appointments', icon: '📅', badge: upcoming.length },
-    { key: 'reviews', label: 'Add Your Review', icon: '⭐' },
+    { key: 'reviews', label: 'My Reviews', icon: '⭐' },
     { key: 'family', label: 'Family & Info', icon: '👪' },
+    { key: 'history', label: 'Clinical History', icon: '📋' },
+    { key: 'medicines', label: 'Medicine Description', icon: '💊', to: '/medicines' },
+    { key: 'diseases', label: 'Disease Description', icon: '🩺', to: '/diseases' },
+    { key: 'finddoctors', label: 'Find Doctors', icon: '🏥', to: '/find-doctors' },
+    { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai' },
     { key: 'timeline', label: 'Timeline', icon: '📈', to: '/timeline' },
   ]
 
@@ -243,7 +265,29 @@ export default function PatientDashboard() {
                   <input type="date" value={upload.visit_date} onChange={(e) => setUpload({ ...upload, visit_date: e.target.value })} style={s.input} />
                   <input placeholder="Notes" value={upload.notes} onChange={(e) => setUpload({ ...upload, notes: e.target.value })} style={s.input} />
                 </div>
-                <input type="file" accept="image/*,.pdf" capture="environment" onChange={(e) => setFile(e.target.files[0])} />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={() => fileRef.current?.click()}>📁 Choose file</button>
+                  <button type="button" onClick={() => photoRef.current?.click()}>📷 Take photo</button>
+                  <button type="button" onClick={() => videoRef.current?.click()}>🎥 Record video</button>
+                </div>
+                <input ref={fileRef} type="file" accept="image/*,video/*,.pdf,.txt" onChange={pickFile} hidden />
+                <input ref={photoRef} type="file" accept="image/*" capture="environment" onChange={pickFile} hidden />
+                <input ref={videoRef} type="file" accept="video/*" capture="environment" onChange={pickFile} hidden />
+                {file && (
+                  <div style={s.preview}>
+                    {isVideoFile && previewUrl
+                      ? <video src={previewUrl} controls style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8 }} />
+                      : previewUrl && <img src={previewUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8 }} />}
+                    <div style={{ fontSize: 13, color: '#5d6b7a', marginTop: 4 }}>
+                      📎 {file.name} ({(file.size / 1048576).toFixed(1)} MB)
+                      {' '}<button type="button" onClick={() => setFile(null)} style={s.linkBtn}>remove</button>
+                    </div>
+                  </div>
+                )}
+                <p style={{ fontSize: 12, color: '#5d6b7a', margin: 0 }}>
+                  Photos & PDFs up to 15 MB · videos up to 100 MB. AI text summaries work best
+                  with clear photos/PDFs — videos are stored for you & your doctor to watch.
+                </p>
                 <button style={s.primaryBtn}>Upload</button>
               </form>
             </section>
@@ -307,7 +351,9 @@ export default function PatientDashboard() {
                       <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}{d.family_member_id && memberName(d.family_member_id) ? ` · 👪 ${memberName(d.family_member_id)}` : ''}</div>
                       <div className="doc-actions">
                         <button onClick={() => summarize(d.id)}>AI summary</button>
-                        <button onClick={() => downloadDocument(d.id, d.title)}>View</button>
+                        {(d.file_mimetype || '').startsWith('video/')
+                          ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
+                          : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
                         <button onClick={async () => { await api.delete(`/api/documents/${d.id}`); load() }}>Delete</button>
                       </div>
                     </div>
@@ -339,14 +385,18 @@ export default function PatientDashboard() {
       {tab === 'appts' && (
         <section style={s.card} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">📅</span> Appointments</h3>
+          <div className="empty" style={{ textAlign: 'left', marginBottom: 12 }}>
+            🏥 Need a hospital specialist?{' '}
+            <Link to="/find-doctors" style={{ fontWeight: 700 }}>Find Bombay, Apollo & Fortis doctors available for appointment →</Link>
+          </div>
           <Appointments role="patient" doctors={links} />
         </section>
       )}
 
       {tab === 'reviews' && (
         <section style={s.card} className="rise">
-          <h3 className="sec-head"><span className="tile t-amber">⭐</span> Rate Your Doctors</h3>
-          <PatientReviews doctors={links} />
+          <h3 className="sec-head"><span className="tile t-amber">⭐</span> My Reviews</h3>
+          <MyReviews role="patient" doctors={links} />
         </section>
       )}
 
@@ -354,6 +404,12 @@ export default function PatientDashboard() {
         <div className="rise cols-2" style={{ alignItems: 'start' }}>
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-orange">🧍</span> My Info</h3>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <span className="pill pill-info" title={user?.id}>🪪 Patient ID: {shortId(user?.id)}</span>
+              <span className="pill pill-ok">🎂 Age: {(() => { const a = calcAge(profile?.dob); return a != null ? `${a} yrs` : 'set DOB ↓' })()}</span>
+              {profile?.gender && <span className="pill pill-ok">👤 {profile.gender}</span>}
+              {profile?.blood_group && <span className="pill pill-ok">🩸 {profile.blood_group}</span>}
+            </div>
             {profile && (
               <div className="form-grid">
                 <input placeholder="Phone" value={profile.phone || ''} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} style={s.input} />
@@ -374,6 +430,17 @@ export default function PatientDashboard() {
           </section>
         </div>
       )}
+
+      {tab === 'history' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-violet">📋</span> Clinical History</h3>
+          <p style={{ fontSize: 13, color: '#5d6b7a', margin: '0 0 10px' }}>
+            Write your full clinical history in detail — conditions, surgeries, medicines,
+            lifestyle and heredity. Your assigned doctors read this when treating you.
+          </p>
+          <MyClinicalHistory />
+        </section>
+      )}
     </DashboardLayout>
   )
 }
@@ -381,7 +448,7 @@ export default function PatientDashboard() {
 const s = {
   card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 'clamp(12px,3vw,18px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)', minWidth: 0 },
   form: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 },
-  input: { padding: 8, fontSize: 14, minWidth: 0, maxWidth: '100%' },
+  preview: { border: '1px dashed #c9d4e2', borderRadius: 8, padding: 8, background: '#f8f9fa' },  input: { padding: 8, fontSize: 14, minWidth: 0, maxWidth: '100%' },
   primaryBtn: { padding: '8px 16px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700, alignSelf: 'flex-start' },
   linkBtn: { background: 'none', border: 0, color: '#152a45', cursor: 'pointer', padding: 0, fontWeight: 700, boxShadow: 'none' },
   doc: { borderBottom: '1px solid #eee', padding: '8px 0' },

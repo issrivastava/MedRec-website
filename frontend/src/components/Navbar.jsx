@@ -32,6 +32,10 @@ export default function Navbar() {
         </div>
         <div className={`nav-links${open ? ' open' : ''}`} onClick={() => setOpen(false)}>
           <Link to="/" style={styles.link}>Home</Link>
+          <Link to="/medicines" style={styles.link}>Medicines</Link>
+          <Link to="/diseases" style={styles.link}>Diseases</Link>
+          <Link to="/find-doctors" style={styles.link}>Find Doctors</Link>
+          <Link to="/ask-ai" style={styles.link}>Ask AI</Link>
           <Link to="/contact" style={styles.link}>Contact Us</Link>
           <Link to="/policy" style={styles.link}>Company Policy</Link>
           {user ? (

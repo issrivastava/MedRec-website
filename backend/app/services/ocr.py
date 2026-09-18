@@ -6,6 +6,9 @@ import io
 def extract_text(file_bytes: bytes, mimetype: str | None, filename: str) -> str:
     name = (filename or "").lower()
     mt = (mimetype or "").lower()
+    # Videos are stored for viewing only — never try to decode the bytes as text.
+    if mt.startswith("video/") or name.endswith((".mp4", ".webm", ".mov", ".m4v", ".3gp", ".3g2", ".mkv")):
+        return ""
     try:
         if "pdf" in mt or name.endswith(".pdf"):
             return _from_pdf(file_bytes)

@@ -70,3 +70,67 @@ def _table(rows: list[list[str]]):
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     return t
+
+
+def build_document_pdf(title: str, meta: dict, file_bytes: bytes,
+                       mimetype: str | None, filename: str) -> bytes:
+    """Render ANY stored document as a PDF (downloads are PDF-only).
+
+    PDF originals pass through; photos are embedded; text is typeset;
+    videos become a cover sheet (watch them with Play inside MedRec).
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                    Image as RLImage, Preformatted)
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from xml.sax.saxutils import escape
+
+    mt = (mimetype or "").lower()
+    name = (filename or "").lower()
+
+    if mt == "application/pdf" or name.endswith(".pdf"):
+        return file_bytes  # already PDF
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
+    styles = getSampleStyleSheet()
+    W, H = A4
+    story = [Paragraph(f"MedRec Document — {escape(title or 'Untitled')}", styles["Title"])]
+
+    meta_rows = [[k, str(v or "—")] for k, v in meta.items() if v]
+    if meta_rows:
+        story += [_table(meta_rows), Spacer(1, 8)]
+
+    try:
+        if mt.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp")):
+            from PIL import Image as PILImage
+            img = PILImage.open(BytesIO(file_bytes)).convert("RGB")
+            iw, ih = img.size
+            max_w, max_h = W - 30 * mm, H - 80 * mm
+            scale = min(max_w / iw, max_h / ih, 1.0)
+            img = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))))
+            jpg = BytesIO()
+            img.save(jpg, format="JPEG", quality=88)
+            jpg.seek(0)
+            story.append(RLImage(ImageReader(jpg),
+                                 width=img.size[0] * 72 / 150, height=img.size[1] * 72 / 150))
+        elif mt.startswith("video/") or name.endswith((".mp4", ".webm", ".mov", ".m4v", ".3gp", ".3g2", ".mkv")):
+            story += [Paragraph("🎥 Video attachment", styles["Heading2"]),
+                      Paragraph("This document is a video. Videos can't play inside a PDF — "
+                                "open it with the <b>Play</b> button in MedRec to watch it. "
+                                "Details above identify the clip.", styles["Normal"])]
+        else:  # plain text and anything else readable
+            text = file_bytes.decode("utf-8", errors="ignore").strip()[:20000] or "(no readable text)"
+            story += [Paragraph("Document text", styles["Heading2"]),
+                      Preformatted(text, styles["Code"])]
+    except Exception:
+        story.append(Paragraph("Could not render this file's content — please view the original in MedRec.",
+                               styles["Normal"]))
+
+    story += [Spacer(1, 8), Paragraph(
+        "Exported from MedRec. AI summaries are informational only — discuss with your doctor.",
+        styles["Italic"])]
+    doc.build(story)
+    return buf.getvalue()

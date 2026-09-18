@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+import re
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -17,7 +18,16 @@ router = APIRouter()
 ALLOWED = {
     "application/pdf", "image/png", "image/jpeg", "image/webp",
     "image/tiff", "image/bmp", "text/plain",
+    # test-result videos (stored for viewing; no text extraction)
+    "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo",
+    "video/3gpp", "video/3gpp2", "video/x-matroska",
 }
+
+VIDEO_EXTS = (".mp4", ".webm", ".mov", ".m4v", ".3gp", ".3g2", ".mkv")
+
+
+def _is_video(content_type: str | None, filename: str) -> bool:
+    return (content_type or "").lower().startswith("video/") or (filename or "").lower().endswith(VIDEO_EXTS)
 
 
 def _doc_out(d: Document) -> dict:
@@ -130,13 +140,15 @@ async def upload_doc(
         if not db.query(FamilyMember).filter_by(id=family_member_id, owner_id=user.id).first():
             raise HTTPException(status_code=400, detail="Unknown family member")
     data = await file.read()
-    max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(status_code=413, detail=f"File too large (max {settings.MAX_UPLOAD_MB} MB)")
+    # Videos run under a larger limit (phone clips); everything else uses MAX_UPLOAD_MB.
+    is_video = _is_video(file.content_type, file.filename or "")
+    max_mb = settings.VIDEO_MAX_UPLOAD_MB if is_video else settings.MAX_UPLOAD_MB
+    if len(data) > max_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File too large (max {max_mb} MB{' for video' if is_video else ''})")
     if file.content_type not in ALLOWED and not (file.filename or "").lower().endswith(
-        (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp", ".txt")
+        (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp", ".txt", *VIDEO_EXTS)
     ):
-        raise HTTPException(status_code=400, detail="Unsupported file type")
+        raise HTTPException(status_code=400, detail="Unsupported file type (photo, video, PDF or text)")
 
     upload_dir = Path(settings.UPLOAD_DIR) / user.id
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -219,6 +231,37 @@ def download_doc(doc_id: str, db: Session = Depends(get_db), user: User = Depend
         raise HTTPException(status_code=410, detail="File missing from storage")
     return FileResponse(path, media_type=doc.file_mimetype or "application/octet-stream",
                         filename=path.name)
+
+
+def _pdf_filename(title: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9 _-]+", "", title or "document").strip().replace(" ", "-") or "document"
+    return f"{safe[:80]}.pdf"
+
+
+@router.get("/{doc_id}/pdf")
+def download_doc_pdf(doc_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Download ANY document strictly as PDF (photos embedded, text typeset,
+    PDFs passed through, videos become an info cover sheet)."""
+    from fastapi.responses import Response
+    from app.services.pdf_export import build_document_pdf
+
+    doc = db.query(Document).filter_by(id=doc_id).first()
+    if not doc or not _can_access(db, user, doc):
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = Path(doc.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=410, detail="File missing from storage")
+    meta = {
+        "Title": doc.title,
+        "Type": f"{doc.doc_type}" + (f" / {doc.report_kind}" if doc.report_kind else ""),
+        "Visit date": doc.visit_date.isoformat() if doc.visit_date else None,
+        "Doctor": doc.doctor_name,
+        "Hospital": doc.hospital,
+        "Original file": path.name,
+    }
+    pdf = build_document_pdf(doc.title, meta, path.read_bytes(), doc.file_mimetype, path.name)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_pdf_filename(doc.title)}"'})
 
 
 @router.delete("/{doc_id}", status_code=204)

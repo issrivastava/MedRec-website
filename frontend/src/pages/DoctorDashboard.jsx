@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import api, { downloadDocument, downloadExportPdf } from '../api'
+import api, { downloadDocument, downloadExportPdf, openDocumentInline } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
 import DashboardLayout from '../components/DashboardLayout'
 import { kindsForCategory, kindLabel, kindIcon } from '../reportKinds'
+import { calcAge, shortId } from '../utils'
 import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import { LabRanges } from '../components/Alerts'
-import { DoctorReviews } from '../components/Reviews'
+import { MyReviews } from '../components/Reviews'
 import { EmergencyInbox } from '../components/EmergencyButton'
 
 export default function DoctorDashboard() {
@@ -26,7 +27,6 @@ export default function DoctorDashboard() {
   const [lang, setLang] = useState('en')
   const [appts, setAppts] = useState([])
   const [noteCount, setNoteCount] = useState(0)
-  const [myRating, setMyRating] = useState(null)
   const [emgCount, setEmgCount] = useState(0)
   const [sosMsg, setSosMsg] = useState('')
   const [sosFeedback, setSosFeedback] = useState('')
@@ -43,8 +43,6 @@ export default function DoctorDashboard() {
     setAppts(a)
     const { data: emg } = await api.get('/api/emergency/assigned').catch(() => ({ data: [] }))
     setEmgCount(emg.filter((x) => x.status === 'active').length)
-    const { data: rt } = await api.get(`/api/reviews/doctor/${user.id}/rating`).catch(() => ({ data: null }))
-    setMyRating(rt)
     const counts = await Promise.all(
       list.map((x) => api.get(`/api/visits/patient/${x.patient_id}`).then((r) => r.data.length).catch(() => 0))
     )
@@ -110,7 +108,10 @@ export default function DoctorDashboard() {
     { key: 'rx', label: 'Prescriptions', icon: '✍️' },
     { key: 'schedule', label: 'Schedule', icon: '📅', badge: booked.length },
     { key: 'alerts', label: 'Lab Alerts', icon: '⚠️', badge: alerts.filter((a) => !a.acknowledged).length },
-    { key: 'reviews', label: 'Reviews', icon: '⭐' },
+    { key: 'medicines', label: 'Medicine Description', icon: '💊', to: '/medicines' },
+    { key: 'diseases', label: 'Disease Description', icon: '🩺', to: '/diseases' },
+    { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai' },
+    { key: 'reviews', label: 'My Reviews', icon: '⭐' },
   ]
 
   return (
@@ -128,7 +129,6 @@ export default function DoctorDashboard() {
             <div className="gstat g-teal"><div className="num">{booked.length}</div><div className="lbl">Booked visits</div><span className="big-icon">📅</span></div>
             <div className="gstat g-violet"><div className="num">{noteCount}</div><div className="lbl">Notes written</div><span className="big-icon">💊</span></div>
             <div className="gstat g-rose"><div className="num">{alerts.filter((a) => !a.acknowledged).length}</div><div className="lbl">Open alerts</div><span className="big-icon">⚠️</span></div>
-            <div className="gstat g-amber"><div className="num">{myRating?.average ?? '—'}</div><div className="lbl">My rating ({myRating?.count || 0})</div><span className="big-icon">⭐</span></div>
           </div>
           <div className="cols-2">
             <section style={s.card}>
@@ -220,8 +220,17 @@ export default function DoctorDashboard() {
                   <Avatar seed={info.user.id} name={info.user.full_name} size={56} />
                   <p style={{ margin: 0 }}>Email: {info.user.email}<br />🩸 {info.profile?.blood_group || '—'} | 🎂 {info.profile?.dob || '—'}</p>
                 </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <span className="pill pill-info" title={info.user.id}>🪪 Patient ID: {shortId(info.user.id)}</span>
+                  <span className="pill pill-ok">🎂 Age: {(() => { const a = calcAge(info.profile?.dob); return a != null ? `${a} yrs` : '—' })()}</span>
+                  {info.profile?.gender && <span className="pill pill-ok">👤 {info.profile.gender}</span>}
+                </div>
                 <p>Allergies: {info.profile?.allergies || '—'} | Chronic: {info.profile?.chronic_conditions || '—'}</p>
                 <p>Emergency: {info.profile?.emergency_contact || '—'} | Phone: {info.profile?.phone || '—'}</p>
+                <details style={s.historyBox}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 700 }}>📋 Clinical history (written by patient)</summary>
+                  <ClinicalHistoryRead profile={info.profile} />
+                </details>
               </section>
               <section style={s.card}>
                 <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Records ({docs.length})</h3>
@@ -247,7 +256,9 @@ export default function DoctorDashboard() {
                       <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}</div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                         <button onClick={() => summarize(d.id)}>AI summary</button>
-                        <button onClick={() => downloadDocument(d.id, d.title)}>View</button>
+                        {(d.file_mimetype || '').startsWith('video')
+                          ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
+                          : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
                       </div>
                     </div>
                   </div>
@@ -294,16 +305,40 @@ export default function DoctorDashboard() {
       )}
       {tab === 'reviews' && (
         <section style={s.card} className="rise">
-          <h3 className="sec-head"><span className="tile t-amber">⭐</span> Patient Reviews</h3>
-          <DoctorReviews doctorId={user.id} refreshKey={tab} />
+          <h3 className="sec-head"><span className="tile t-amber">⭐</span> My Reviews</h3>
+          <MyReviews role="doctor" />
         </section>
       )}
     </DashboardLayout>
   )
 }
 
-const s = {
-  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 'clamp(12px,3vw,18px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)', minWidth: 0 },
+/* Read-only view of the patient's self-written clinical history. */
+function ClinicalHistoryRead({ profile }) {
+  if (!profile) return <p style={{ color: '#5d6b7a' }}>No clinical history written yet.</p>
+  const rows = [
+    ['Height / weight', [profile.height_cm && `${profile.height_cm} cm`, profile.weight_kg && `${profile.weight_kg} kg`].filter(Boolean).join(' · ')],
+    ['Background', [profile.marital_status, profile.occupation].filter(Boolean).join(' · ')],
+    ['Habits', [profile.smoking_status && `Smoking: ${profile.smoking_status}`, profile.alcohol_use && `Alcohol: ${profile.alcohol_use}`, profile.diet, profile.activity_level && `Activity: ${profile.activity_level}`].filter(Boolean).join(' · ')],
+    ['Past illnesses', profile.past_illnesses],
+    ['Surgeries / hospitalizations', profile.surgeries],
+    ['Current medications', profile.current_medications],
+    ['Immunizations', profile.immunizations],
+    ['Family history', profile.family_history_text],
+    ['Menstrual / obstetric', profile.menstrual_history],
+    ['Mental health / lifestyle', profile.mental_health],
+  ].filter(([, v]) => v)
+  if (!rows.length) return <p style={{ color: '#5d6b7a' }}>No clinical history written yet.</p>
+  return (
+    <div style={{ marginTop: 8 }}>
+      {rows.map(([k, v]) => (
+        <p key={k} style={{ margin: '4px 0', fontSize: 14 }}><b>{k}:</b> {v}</p>
+      ))}
+    </div>
+  )
+}
+
+const s = {  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 'clamp(12px,3vw,18px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)', minWidth: 0 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(220px,100%),1fr))', gap: 8, marginBottom: 8 },
   input: { padding: 8, fontSize: 14, minWidth: 0, maxWidth: '100%' },
   patCard: { display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fff', border: '2px solid #e7e5e4', borderRadius: 14, padding: '8px 14px 8px 8px', cursor: 'pointer' },
@@ -312,5 +347,6 @@ const s = {
   sosBtn: { padding: '8px 16px', background: '#8b2e3c', color: '#fff', border: '1px solid #6d2330', cursor: 'pointer', fontWeight: 700 },
   alert: { background: '#eef2f7', border: '1px solid #c9d4e2', borderRadius: 8, padding: 8, marginBottom: 6 },
   summary: { background: '#eef2f7', border: '1px solid #c9d4e2', padding: 12, borderRadius: 8, marginTop: 10 },
+  historyBox: { background: '#f8f9fa', border: '1px solid #dfe3e8', borderRadius: 8, padding: 10, marginTop: 8 },
   row: { display: 'flex', justifyContent: 'space-between', gap: 8, borderBottom: '1px solid #eee', padding: '8px 0', flexWrap: 'wrap', alignItems: 'center' },
 }

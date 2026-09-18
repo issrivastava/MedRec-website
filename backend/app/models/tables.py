@@ -378,6 +378,17 @@ class Review(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class SiteReview(Base):
+    """A user's own review of MedRec itself. Shown only in the writer's own dashboard."""
+    __tablename__ = "site_reviews"
+
+    id: Mapped[str] = _uuid_col()
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..5
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class OtpCode(Base):
     """Short-lived email OTP for login / registration / password reset.
 

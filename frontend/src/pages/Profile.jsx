@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import api, { avatarSrc } from '../api'
 import { useAuth } from '../context/AuthContext'
+import AvatarEditor from '../components/AvatarEditor'
+import { calcAge, formatDate } from '../utils'
 
 export default function Profile() {
   const { user, refreshUser, logout, deleteAccount, firebaseConfigured } = useAuth()
@@ -12,9 +14,32 @@ export default function Profile() {
   const [delConfirm, setDelConfirm] = useState('')
   const [delPassword, setDelPassword] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [avatarVer, setAvatarVer] = useState(0) // cache-buster so edits show instantly
+  const [details, setDetails] = useState(null) // patient/doctor profile record
+  const [copied, setCopied] = useState(false)
   const nav = useNavigate()
   const pic = avatarSrc(user)
+  const displayPic = pic ? `${pic}${pic.includes('?') ? '&' : '?'}v=${avatarVer}` : null
   const dashboard = user?.role === 'doctor' ? '/doctor' : '/patient'
+
+  useEffect(() => {
+    if (user?.role === 'patient') {
+      api.get('/api/patients/me').then(({ data }) => setDetails(data)).catch(() => {})
+    } else if (user?.role === 'doctor') {
+      api.get('/api/doctors/me').then(({ data }) => setDetails(data)).catch(() => {})
+    }
+  }, [user?.role])
+
+  const copyId = async () => {
+    try {
+      await navigator.clipboard.writeText(user?.id || '')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard unavailable */ }
+  }
+
+  const age = user?.role === 'patient' ? calcAge(details?.dob) : null
 
   const saveName = async () => {
     setMsg(''); setErr('')
@@ -36,9 +61,25 @@ export default function Profile() {
       fd.append('file', file)
       await api.post('/api/auth/avatar', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       await refreshUser()
+      setAvatarVer((v) => v + 1)
       setMsg('Profile picture updated')
     } catch (e) {
       setErr(e.response?.data?.detail || 'Upload failed (PNG/JPG/WEBP, max 5 MB)')
+    }
+  }
+
+  const saveEditedPic = async (blob) => {
+    setMsg(''); setErr('')
+    try {
+      const fd = new FormData()
+      fd.append('file', new File([blob], 'avatar-edited.jpg', { type: 'image/jpeg' }))
+      await api.post('/api/auth/avatar', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      await refreshUser()
+      setAvatarVer((v) => v + 1)
+      setEditorOpen(false)
+      setMsg('Profile picture updated')
+    } catch (e) {
+      setErr(e.response?.data?.detail || 'Could not save edited picture')
     }
   }
 
@@ -46,6 +87,7 @@ export default function Profile() {
     setMsg(''); setErr('')
     await api.delete('/api/auth/avatar')
     await refreshUser()
+    setAvatarVer((v) => v + 1)
     setMsg('Profile picture removed')
   }
 
@@ -75,8 +117,8 @@ export default function Profile() {
       <div className="cols-2" style={{ alignItems: 'start' }}>
         <section style={s.card}>
           <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-            {pic
-              ? <img src={pic} alt="profile" style={s.bigAvatar} />
+            {displayPic
+              ? <img src={displayPic} alt="profile" style={s.bigAvatar} />
               : <span style={s.bigFallback}>{user?.full_name?.charAt(0).toUpperCase()}</span>}
             <div>
               <p style={{ margin: '4px 0' }}><b>{user?.full_name}</b> ({user?.role})</p>
@@ -85,7 +127,14 @@ export default function Profile() {
                 {pic ? 'Change picture' : 'Upload profile picture'}
                 <input type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadPic} hidden />
               </label>
-              {pic && <button onClick={removePic} style={{ ...s.smallBtn, marginLeft: 8 }}>Remove</button>}
+              {pic && (
+                <>
+                  <button onClick={() => setEditorOpen(true)} style={{ ...s.smallBtn, marginLeft: 8, background: '#1e3a5f', color: '#fff', border: 0, fontWeight: 700 }}>
+                    ✏️ Edit
+                  </button>
+                  <button onClick={removePic} style={{ ...s.smallBtn, marginLeft: 8 }}>Remove</button>
+                </>
+              )}
             </div>
           </div>
         </section>
@@ -94,6 +143,39 @@ export default function Profile() {
           <h3 style={{ marginTop: 0 }}>Account details</h3>
           <label>Full name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} style={s.input} />
+          <div style={s.detailGrid}>
+            <Detail label={user?.role === 'doctor' ? 'Doctor ID' : 'Patient ID'} mono>
+              <span title={user?.id}>{user?.id}</span>{' '}
+              <button onClick={copyId} style={s.smallBtn}>{copied ? 'Copied ✓' : 'Copy'}</button>
+            </Detail>
+            <Detail label="Email">{user?.email}</Detail>
+            <Detail label="Role"><span className="pill pill-info">{user?.role}</span></Detail>
+            <Detail label="Member since">{formatDate(user?.created_at)}</Detail>
+            {user?.role === 'patient' && (
+              <>
+                <Detail label="Age">{age != null ? `${age} years` : '— (set date of birth below)'}</Detail>
+                <Detail label="Gender">{details?.gender || '—'}</Detail>
+                <Detail label="Blood group">{details?.blood_group ? `🩸 ${details.blood_group}` : '—'}</Detail>
+                <Detail label="Phone">{details?.phone || '—'}</Detail>
+              </>
+            )}
+            {user?.role === 'doctor' && (
+              <>
+                <Detail label="Specialization">{details?.specialization || '—'}</Detail>
+                <Detail label="License No">{details?.license_no || '—'}</Detail>
+                <Detail label="Hospital">{details?.hospital || '—'}</Detail>
+                <Detail label="Phone">{details?.phone || '—'}</Detail>
+              </>
+            )}
+          </div>
+          {user?.role !== 'admin' && (
+            <p style={{ fontSize: 13, color: '#5d6b7a' }}>
+              Edit medical details in your dashboard →{' '}
+              <Link to={dashboard} style={{ fontWeight: 700 }}>
+                {user?.role === 'doctor' ? 'Doctor profile' : 'Family & Info / Clinical History'}
+              </Link>
+            </p>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             <button onClick={saveName} style={s.btn}>Save</button>
             <Link to={dashboard}><button>Go to Dashboard</button></Link>
@@ -128,16 +210,33 @@ export default function Profile() {
             </div>
           )}
       </section>
+
+      {editorOpen && displayPic && (
+        <AvatarEditor
+          src={pic}
+          onClose={() => setEditorOpen(false)}
+          onSave={saveEditedPic}
+        />
+      )}
     </div>
   )
 }
 
-const s = {
-  wrap: { width: '100%', padding: '26px 30px 40px' },
+function Detail({ label, children, mono }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 12, color: '#5d6b7a', fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 14, overflowWrap: 'anywhere', fontFamily: mono ? 'monospace' : undefined }}>{children}</div>
+    </div>
+  )
+}
+
+const s = {  wrap: { width: '100%', padding: '26px 30px 40px' },
   card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 18, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)' },
   bigAvatar: { width: 96, height: 96, borderRadius: '50%', objectFit: 'cover' },
   bigFallback: { width: 96, height: 96, borderRadius: '50%', background: '#1e3a5f', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 700 },
   input: { padding: 8, fontSize: 15, width: '100%', marginTop: 4 },
+  detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginTop: 12, background: '#f8f9fa', border: '1px solid #dfe3e8', borderRadius: 8, padding: 12 },
   btn: { padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
   dangerBtn: { padding: '8px 14px', background: '#dc2626', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700 },
   smallBtn: { padding: '6px 10px', cursor: 'pointer' },

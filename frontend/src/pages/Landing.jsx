@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import api from '../api'
-import { Avatar, PhotoFrame, PHOTOS } from '../components/People'
+import { PhotoFrame, PHOTOS } from '../components/People'
 import { useAuth } from '../context/AuthContext'
 
 const FEATURES = [
@@ -14,6 +13,9 @@ const FEATURES = [
   { icon: '⚠️', tile: 't-amber', title: 'Lab alerts', text: 'Abnormal values auto-flagged against doctor-approved ranges, with a checkup nudge.' },
   { icon: '👪', tile: 't-teal', title: 'Family profiles', text: 'Manage kids, parents and elders — each with their own records — from one account.' },
   { icon: '🌐', tile: 't-violet', title: 'AI in your language', text: 'Summaries in English, Hindi, Hinglish, Marathi, Tamil, Telugu, Bengali, Gujarati, Kannada, Malayalam.' },
+  { icon: '💊', tile: 't-green', title: 'Medicine descriptions', text: 'Search any medicine for uses, dosage and side effects — free drug data with Tata 1mg links.' },
+  { icon: '🩺', tile: 't-rose', title: 'Disease descriptions', text: 'Look up any condition — symptoms, causes, diagnosis, treatment and prevention, free.' },
+  { icon: '🤖', tile: 't-violet', title: 'Ask AI doubts', text: 'Chat with free Gemini AI — health and app doubts explained in simple words.' },
 ]
 
 const STEPS = [
@@ -33,12 +35,7 @@ const FAQS = [
 export default function Landing() {
   const { user } = useAuth()
   const [openFaq, setOpenFaq] = useState(null)
-  const [reviews, setReviews] = useState([])
   const dashboard = user ? (user.role === 'doctor' ? '/doctor' : '/patient') : null
-
-  useEffect(() => {
-    api.get('/api/reviews/recent').then(({ data }) => setReviews(data)).catch(() => {})
-  }, [])
 
   return (
     <div>
@@ -151,30 +148,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* TESTIMONIALS */}
-      {reviews.length > 0 && (
-        <section className="landing-section" style={{ background: '#faf8f2', borderTop: '1px solid #d6c9a8', borderBottom: '1px solid #d6c9a8' }}>
-          <span className="kicker-rule" />
-          <p style={s.kicker}>PATIENT STORIES</p>
-          <h2 style={s.h2}>Loved by patients & doctors</h2>
-          <div style={s.grid}>
-            {reviews.map((r) => (
-              <div key={r.id} className="feat-card" style={s.quote}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Avatar seed={r.patient_id} name={r.patient_name} size={44} />
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{r.patient_name}</div>
-                    <div style={{ fontSize: 12, color: '#5d6b7a' }}>for Dr. {r.doctor_name}</div>
-                  </div>
-                  <div style={{ marginLeft: 'auto', color: '#8a6d3b', letterSpacing: 2 }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</div>
-                </div>
-                <p style={{ ...s.cardP, marginTop: 10, fontStyle: 'italic' }}>"{r.comment || 'Great experience with my doctor.'}"</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* CTA */}
       <section style={{ background: '#1a2e45', color: '#fff', borderTop: '4px solid #8a6d3b' }}>
         <div className="cta-band">
@@ -182,11 +155,6 @@ export default function Landing() {
             <h2 style={{ margin: '0 0 8px', fontSize: 30, fontFamily: 'Georgia, serif', color: '#fff' }}>Stop losing prescriptions in drawers.</h2>
             <p style={{ margin: '0 0 18px', color: '#c9d4e2' }}>Join MedRec free — your health history, organized forever.</p>
             {!user && <Link to="/register" style={s.ctaBtn}>Get started — it's free →</Link>}
-          </div>
-          <div style={s.ctaCard}>
-            <div style={s.ctaRow}><span>Reports digitized</span><b>1,240+</b></div>
-            <div style={s.ctaRow}><span>AI summaries</span><b>860+</b></div>
-            <div style={s.ctaRow}><span>Doctors on board</span><b>120+</b></div>
           </div>
         </div>
       </section>
@@ -228,6 +196,4 @@ const s = {
   faqA: { margin: 0, padding: '0 18px 16px', color: '#5d6b7a' },
   cta: { background: '#1a2e45', color: '#fff', padding: '56px 48px', display: 'flex', gap: 48, alignItems: 'center', flexWrap: 'wrap' },
   ctaBtn: { padding: '14px 30px', background: '#fff', color: '#1a2e45', fontWeight: 700, borderRadius: 4, textDecoration: 'none', border: '1px solid #fff', fontSize: 17, display: 'inline-block', maxWidth: '100%' },
-  ctaCard: { background: '#fff', border: '1px solid #dfe3e8', borderRadius: 4, padding: 20, minWidth: 'min(280px,100%)', width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 12, color: '#1a2e45' },
-  ctaRow: { display: 'flex', justifyContent: 'space-between', gap: 24, borderBottom: '1px solid #e5e7eb', paddingBottom: 10 },
 }

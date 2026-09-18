@@ -16,19 +16,29 @@ export function avatarSrc(user) {
 }
 
 export async function downloadDocument(id, fallbackName = 'document') {
-  const res = await api.get(`/api/documents/${id}/download`, { responseType: 'blob' })
+  // Downloads are PDF-only: the backend renders any file type as a PDF.
+  const res = await api.get(`/api/documents/${id}/pdf`, { responseType: 'blob' })
   const disposition = res.headers['content-disposition'] || ''
   const match = disposition.match(/filename="?([^";]+)"?/)
-  const name = match ? match[1] : fallbackName
-  const url = URL.createObjectURL(new Blob([res.data]))
+  let name = match ? match[1] : `${fallbackName}.pdf`
+  if (!name.toLowerCase().endsWith('.pdf')) name += '.pdf'
+  const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
   const a = document.createElement('a')
   a.href = url
   a.download = name
-  a.target = '_blank'
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+export async function openDocumentInline(id) {
+  // Fetch with auth, then open in a new tab — videos play, PDFs/images preview.
+  const res = await api.get(`/api/documents/${id}/download`, { responseType: 'blob' })
+  const mime = res.headers['content-type'] || 'application/octet-stream'
+  const url = URL.createObjectURL(new Blob([res.data], { type: mime }))
+  window.open(url, '_blank', 'noopener')
+  setTimeout(() => URL.revokeObjectURL(url), 120000)
 }
 
 export async function downloadExportPdf(patientId = null) {

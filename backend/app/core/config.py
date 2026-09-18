@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_MB: int = 15
+    VIDEO_MAX_UPLOAD_MB: int = 100  # test-result video clips (photos/PDFs use MAX_UPLOAD_MB)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
     OLLAMA_TIMEOUT_SEC: int = 120
@@ -25,6 +26,28 @@ class Settings(BaseSettings):
     OTP_RESEND_SECONDS: int = 60  # min gap between OTP requests per email+purpose
     OTP_MAX_ATTEMPTS: int = 5  # wrong-code attempts before the code is voided
     OTP_DEV_ECHO: bool = True  # when True AND no MAIL_HOST is set, return the OTP in the API response for local dev
+    # --- Medicine Description (free openFDA + Tata 1mg links) ---
+    # Best FREE drug-data source: openFDA — works WITHOUT any key.
+    # Get an optional free key at https://open.fda.gov/apis/authentication/
+    # to raise limits (40 -> 240 req/min, 1000 -> 120k req/day).
+    OPENFDA_API_KEY: str = ""
+    OPENFDA_BASE_URL: str = "https://api.fda.gov/drug/label.json"
+    # Tata 1mg has NO official public API, so results link out to Tata 1mg
+    # search pages. If you have an UNOFFICIAL proxy (e.g. RapidAPI mirror),
+    # set these and the backend will try it first, then fall back to openFDA.
+    TATA1MG_API_KEY: str = ""
+    TATA1MG_API_URL: str = ""
+    TATA1MG_SEARCH_URL: str = "https://www.1mg.com/search/all"
+    MEDICINES_CACHE_TTL_SEC: int = 3600
+    # --- Disease Description (free Wikipedia API, no key needed) ---
+    DISEASES_CACHE_TTL_SEC: int = 86400  # disease info changes rarely
+    # --- AI doubt-solver (free Gemini tier, local Ollama fallback) ---
+    # Free key: https://aistudio.google.com/apikey (no card needed).
+    # Empty = Gemini skipped, local Ollama used if running; if neither is
+    # available the endpoint returns 503 with setup instructions.
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_TIMEOUT_SEC: int = 60
 
     class Config:
         env_file = ".env"

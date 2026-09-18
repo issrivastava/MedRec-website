@@ -378,6 +378,23 @@ class DoctorRatingOut(BaseModel):
     count: int = 0
 
 
+class SiteReviewIn(BaseModel):
+    """The user's own review of MedRec itself."""
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class SiteReviewOut(BaseModel):
+    id: str
+    user_id: str
+    rating: int
+    comment: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class OtpRequestIn(BaseModel):
     email: EmailStr
     purpose: str = Field(default="login", pattern="^(login|reset|register)$")
