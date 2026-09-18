@@ -34,17 +34,46 @@ def _from_pdf(data: bytes) -> str:
         text = "\n".join(parts).strip()
         if len(text) > 50:
             return text[:20000]
+        # Scanned PDF (image pages, no embedded text): render pages and OCR them
+        ocr_bits = []
+        try:
+            import shutil
+            if shutil.which("tesseract"):
+                for page in doc[:3]:  # first 3 pages keep it fast
+                    pix = page.get_pixmap(dpi=200)
+                    ocr_bits.append(_ocr_image_bytes(pix.tobytes("png")))
+        except Exception:
+            pass
+        return "\n".join(b for b in ocr_bits if b).strip()[:20000]
     except Exception:
         pass
     return ""
 
 
+def _prep_image(img):
+    """Preprocess for OCR: grayscale, upscale small images, boost contrast."""
+    try:
+        from PIL import ImageOps
+        if img.mode != "L":
+            img = img.convert("L")
+        w, h = img.size
+        if max(w, h) < 1500:  # upscale small phone photos 2x for Tesseract
+            img = img.resize((w * 2, h * 2))
+        return ImageOps.autocontrast(img, cutoff=1)
+    except Exception:
+        return img
+
+
+def _ocr_image_bytes(png_bytes: bytes) -> str:
+    from PIL import Image
+    import pytesseract
+    img = Image.open(io.BytesIO(png_bytes))
+    return (pytesseract.image_to_string(_prep_image(img)) or "").strip()
+
+
 def _from_image(data: bytes) -> str:
     try:
-        from PIL import Image
-        import pytesseract
-        img = Image.open(io.BytesIO(data))
-        return (pytesseract.image_to_string(img) or "")[:20000]
+        return _ocr_image_bytes(data)[:20000]
     except Exception:
         # tesseract binary often missing — not fatal
         return ""

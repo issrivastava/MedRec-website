@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import api, { downloadDocument, downloadExportPdf, openDocumentInline } from '../api'
+import api, { AI_TIMEOUT, downloadDocument, downloadExportPdf, openDocumentInline } from '../api'
 import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
@@ -17,6 +17,14 @@ import { AlertsPanel } from '../components/Alerts'
 import { calcAge, shortId } from '../utils'
 import { MyReviews } from '../components/Reviews'
 import { EmergencyButton } from '../components/EmergencyButton'
+import VitalsTracker from '../components/VitalsTracker'
+import VaccinationTracker from '../components/VaccinationTracker'
+import { ShareManager, ConsentManager } from '../components/Sharing'
+import ChatBox from '../components/ChatBox'
+import CompareReports from '../components/CompareReports'
+import { SecondOpinionBox } from '../components/CareTools'
+import { VoiceReader } from '../components/CareTools'
+import SmartUpload, { ModelPicker, DocAIActions } from '../components/SmartUpload'
 
 export default function PatientDashboard() {
   const { user } = useAuth()
@@ -43,10 +51,10 @@ export default function PatientDashboard() {
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
-  const load = async () => {
+  const load = async (searchQ) => {
     const [{ data: p }, { data: d }, { data: l }, { data: f }] = await Promise.all([
       api.get('/api/patients/me'),
-      api.get('/api/documents', { params: { group_by: filter.group_by === 'doctor' ? 'doctor' : 'date' } }),
+      api.get('/api/documents', { params: { group_by: filter.group_by === 'doctor' ? 'doctor' : 'date', q: searchQ || undefined } }),
       api.get('/api/assignments/my'),
       api.get('/api/family').catch(() => ({ data: [] })),
     ])
@@ -61,6 +69,29 @@ export default function PatientDashboard() {
 
   useEffect(() => { load().catch(console.error) }, [])
 
+  // server-side full-text search (title + hospital + doctor + notes + OCR).
+  // Tracks which query the current list came from so the client filter below
+  // doesn't hide OCR matches, and restores the full list when cleared.
+  const [serverQ, setServerQ] = useState('')
+  const [aiStatus, setAiStatus] = useState(null)
+  useEffect(() => {
+    api.get('/api/documents/ai-status').then(({ data }) => setAiStatus(data)).catch(() => {})
+  }, [])
+  useEffect(() => {
+    const q = filter.q || ''
+    if (q.length >= 2) {
+      const t = setTimeout(() => {
+        api.get('/api/documents', { params: { q } }).then(({ data }) => { setDocs(data); setServerQ(q) }).catch(() => {})
+      }, 400)
+      return () => clearTimeout(t)
+    }
+    if (serverQ) {
+      // search cleared -> restore full list
+      api.get('/api/documents', { params: { group_by: filter.group_by === 'doctor' ? 'doctor' : 'date' } })
+        .then(({ data }) => { setDocs(data); setServerQ('') }).catch(() => setServerQ(''))
+    }
+  }, [filter.q])
+
   // Active profile drives the record filter + upload attribution
   useEffect(() => {
     setFilter((f) => ({ ...f, member: activeId || '' }))
@@ -68,8 +99,11 @@ export default function PatientDashboard() {
   }, [activeId])
 
   const filtered = useMemo(() => {
+    // When the list already came from a server search for the same query,
+    // the server (which also searches OCR text) has filtered — don't re-hide.
+    const skipQ = serverQ && serverQ === (filter.q || '')
     return docs.filter((d) => {
-      if (filter.q && !(d.title + (d.hospital || '') + (d.notes || '') + (d.report_kind || '') + (d.category || '')).toLowerCase().includes(filter.q.toLowerCase())) return false
+      if (!skipQ && filter.q && !(d.title + (d.hospital || '') + (d.notes || '') + (d.doctor_name || '') + (d.report_kind || '') + (d.category || '')).toLowerCase().includes(filter.q.toLowerCase())) return false
       if (filter.doctor_name && !(d.doctor_name || '').toLowerCase().includes(filter.doctor_name.toLowerCase())) return false
       if (filter.doc_type && d.doc_type !== filter.doc_type) return false
       if (filter.category && (d.category || '') !== filter.category) return false
@@ -78,7 +112,12 @@ export default function PatientDashboard() {
       if (filter.member && filter.member !== 'mine' && d.family_member_id !== filter.member) return false
       return true
     })
-  }, [docs, filter])
+  }, [docs, filter, serverQ])
+
+  const clearFilters = () => {
+    setFilter({ q: '', doctor_name: '', doc_type: '', category: '', report_kind: '', group_by: filter.group_by, member: '' })
+  }
+  const filtersActive = !!(filter.q || filter.doctor_name || filter.doc_type || filter.category || filter.report_kind || filter.member)
 
   const grouped = useMemo(() => {
     if (filter.group_by === 'doctor') {
@@ -110,33 +149,65 @@ export default function PatientDashboard() {
   }
 
   const pickFile = (e) => {
-    setFile(e.target.files[0] || null)
+    const f = e.target.files[0] || null
+    setFile(f)
     e.target.value = ''
+    // smart upload: auto-suggest title/category/kind from filename
+    if (f) {
+      const fd = new FormData()
+      fd.append('title', upload.title || '')
+      fd.append('filename', f.name || '')
+      api.post('/api/documents/auto-classify', fd).then(({ data }) => {
+        setUpload((u) => ({
+          ...u,
+          title: u.title || data.suggested_title || '',
+          category: u.category || data.suggested_category || '',
+          report_kind: u.report_kind || data.suggested_kind || '',
+          doc_type: u.doc_type === 'report' && data.suggested_doc_type ? data.suggested_doc_type : u.doc_type,
+        }))
+        if (data.possible_duplicates?.length) setMsg(`⚠️ Possible duplicate: ${data.possible_duplicates[0].title}`)
+        else setMsg(`✨ Smart detect: ${data.suggested_kind || data.suggested_doc_type || 'report'} (${data.confidence} confidence)`)
+      }).catch(() => {})
+    }
   }
   const isVideoFile = (file?.type || '').startsWith('video/')
 
   const doUpload = async (e) => {
     e.preventDefault()
     if (!file) return setMsg('Choose a file — photo, video or PDF')
+    if (file.size === 0) return setMsg('⚠️ That file is empty (0 bytes) — please pick the real file again.')
     const fd = new FormData()
     fd.append('file', file)
     Object.entries(upload).forEach(([k, v]) => { if (v) fd.append(k, v) })
     if (!upload.title) return setMsg('Title is required')
-    await api.post('/api/documents', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-    setMsg('Uploaded — lab values auto-checked for alerts')
-    setFile(null); setUpload({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: activeId || '' })
-    load()
+    try {
+      await api.post('/api/documents', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setMsg('Uploaded — lab values auto-checked for alerts')
+      setFile(null); setUpload({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: activeId || '' })
+      load()
+    } catch (err) {
+      setMsg(`Upload failed: ${err.response?.data?.detail || err.message}`)
+    }
   }
 
   const summarize = async (id) => {
     setSummary({ loading: true })
-    const { data } = await api.post(`/api/documents/${id}/summarize`, null, { params: { language: lang } })
-    setSummary(data)
+    try {
+      const { data } = await api.post(`/api/documents/${id}/summarize`, null, { params: { language: lang }, timeout: AI_TIMEOUT })
+      setSummary(data)
+    } catch (err) {
+      setSummary({ error: err.code === 'ECONNABORTED' ? 'AI is still working (cold start can take 1–2 min) — please try again in a minute.' : (err.response?.data?.detail || 'Could not generate summary. Check that Ollama is running (`ollama serve`) and the file has readable text.') })
+    }
   }
 
   const loadOverall = async () => {
-    const { data } = await api.get('/api/documents/patient/overall-summary', { params: { language: lang } })
-    setOverall(data)
+    setOverall(null)
+    try {
+      const { data } = await api.get('/api/documents/patient/overall-summary', { params: { language: lang }, timeout: AI_TIMEOUT })
+      setOverall(data)
+    } catch (err) {
+      setOverall({ summary_text: err.code === 'ECONNABORTED' ? 'AI is still working (cold start can take 1–2 min) — please try again in a minute.' : `Could not generate overall summary: ${err.response?.data?.detail || err.message}`, model_used: 'error', documents_used: 0 })
+    }
   }
 
   const linkDoctor = async (e) => {
@@ -149,8 +220,14 @@ export default function PatientDashboard() {
     { key: 'overview', label: 'Overview', icon: '🏠' },
     { key: 'records', label: 'My Records', icon: '🗂️', badge: docs.length },
     { key: 'analytics', label: 'Analysis', icon: '📊' },
+    { key: 'compare', label: 'What Changed', icon: '🔄' },
     { key: 'rx', label: 'Prescriptions', icon: '💊', badge: stats.notes },
     { key: 'appts', label: 'Appointments', icon: '📅', badge: upcoming.length },
+    { key: 'vitals', label: 'Vitals', icon: '❤️' },
+    { key: 'vaccines', label: 'Vaccines', icon: '💉' },
+    { key: 'share', label: 'Share & QR', icon: '🔗' },
+    { key: 'chat', label: 'Chat Doctor', icon: '💬' },
+    { key: 'opinions', label: '2nd Opinion', icon: '🧠' },
     { key: 'reviews', label: 'My Reviews', icon: '⭐' },
     { key: 'family', label: 'Family & Info', icon: '👪' },
     { key: 'history', label: 'Clinical History', icon: '📋' },
@@ -290,28 +367,41 @@ export default function PatientDashboard() {
                 </p>
                 <button style={s.primaryBtn}>Upload</button>
               </form>
+              <div style={{ marginTop: 12 }}>
+                <SmartUpload meta={upload} activeId={activeId} onUploaded={load} notify={setMsg} />
+              </div>
             </section>
 
             <section style={s.card}>
               <h3 className="sec-head"><span className="tile t-violet">🤖</span> AI Health Overview</h3>
+              <ModelPicker />
+              {aiStatus && (
+                <div style={{ fontSize: 12, marginBottom: 8, color: aiStatus.ollama_ok ? '#166534' : '#b91c1c' }}>
+                  {aiStatus.ollama_ok ? `🟢 Ollama ready (${aiStatus.ollama_detail})` : `🔴 ${aiStatus.ollama_detail}`}
+                  {!aiStatus.tesseract_ok && <div style={{ color: '#92400e' }}>⚠️ {aiStatus.tesseract_detail}</div>}
+                </div>
+              )}
               <label>Summary language: <select value={lang} onChange={(e) => setLang(e.target.value)} style={s.input}>
                 {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select></label>
               <div style={{ marginTop: 8 }}><button onClick={loadOverall} style={s.primaryBtn}>Generate overall summary</button></div>
-              {overall && <div style={s.summary}><b>Overall ({overall.model_used}, {overall.documents_used} docs):</b><p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p></div>}
+              {overall && <div style={s.summary}><b>Overall ({overall.model_used}, {overall.documents_used} docs):</b><VoiceReader text={overall.summary_text} /><p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p></div>}
               {summary && (
                 <div style={s.summary}>
-                  <b>AI report ({summary.model_used || ''}, {summary.language || lang}):</b>
-                  {summary.loading ? <p>Generating with Ollama…</p> : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
+                  <b>{summary.loading ? 'AI report (working…)' : `AI report (${summary.model_used || ''}${summary.model_used === 'offline-extractive-fallback' ? ' — offline, start Ollama for full AI' : ''}, ${summary.language || lang})`}:</b>
+                  {!summary.loading && summary.summary_text && <VoiceReader text={summary.summary_text} />}
+                  {summary.loading ? <p>Generating with Ollama… (cold start can take 1–2 min — please wait, don't click again)</p>
+                    : summary.error ? <p style={{ color: '#b91c1c' }}>⚠️ {summary.error}</p>
+                      : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
                 </div>
               )}
             </section>
           </div>
 
           <section style={s.card}>
-            <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Documents</h3>
+            <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Documents — showing {filtered.length} of {docs.length}</h3>
             <div className="toolbar-row">
-              <input placeholder="Search title, hospital, kind…" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} style={s.input} />
+              <input placeholder="Full-text search — title, hospital, doctor, OCR text…" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} style={s.input} />
               <input placeholder="Filter by doctor" value={filter.doctor_name} onChange={(e) => setFilter({ ...filter, doctor_name: e.target.value })} style={s.input} />
               <select value={filter.doc_type} onChange={(e) => setFilter({ ...filter, doc_type: e.target.value })} style={s.input}>
                 <option value="">All types</option><option value="report">Report</option><option value="prescription">Prescription</option>
@@ -337,6 +427,7 @@ export default function PatientDashboard() {
                 <option value="">Everyone</option><option value="mine">Mine only</option>
                 {family.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
+              {filtersActive && <button onClick={clearFilters} style={s.linkBtn}>✕ Clear filters</button>}
             </div>
             {Object.entries(grouped).map(([group, items]) => (
               <div key={group} style={{ marginBottom: 14 }}>
@@ -348,9 +439,15 @@ export default function PatientDashboard() {
                       <b>{d.title}</b>{' '}
                       <span className="pill pill-info">{kindLabel(d.report_kind) || d.doc_type}</span>
                       {d.category && <span className="pill" style={{ background: '#eef2f7', marginLeft: 6 }}>{d.category}</span>}
+                      {(d.file_size || 0) === 0
+                        ? <span className="pill pill-open" style={{ marginLeft: 6 }} title="File stored 0 bytes — delete and re-upload">⚠️ empty file</span>
+                        : d.has_text
+                          ? <span className="pill pill-ok" style={{ marginLeft: 6 }} title={`${d.ocr_chars} text chars extracted`}>📝 text ready</span>
+                          : <span className="pill" style={{ marginLeft: 6, background: '#fef3c7' }} title="No readable text — photo/scan needs Tesseract, or re-upload a clear PDF">🖼️ image-only</span>}
                       <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}{d.family_member_id && memberName(d.family_member_id) ? ` · 👪 ${memberName(d.family_member_id)}` : ''}</div>
                       <div className="doc-actions">
-                        <button onClick={() => summarize(d.id)}>AI summary</button>
+                        <button onClick={() => summarize(d.id)} disabled={(d.file_size || 0) === 0} title={(d.file_size || 0) === 0 ? 'Empty file — re-upload first' : 'Generate AI summary'}>AI summary</button>
+                        <DocAIActions doc={d} onApplied={load} />
                         {(d.file_mimetype || '').startsWith('video/')
                           ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
                           : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
@@ -362,7 +459,11 @@ export default function PatientDashboard() {
               </div>
             ))}
             {!Object.keys(grouped).length && (
-              <div className="empty">📭 No documents here yet — scan your first report above to get started.</div>
+              <div className="empty">
+                {docs.length
+                  ? <>🔍 Filters hide all {docs.length} document(s) — <button onClick={clearFilters} style={s.linkBtn}>clear filters</button> to show everything.</>
+                  : <>📭 No documents here yet — scan your first report above to get started.</>}
+              </div>
             )}
           </section>
         </div>
@@ -390,6 +491,54 @@ export default function PatientDashboard() {
             <Link to="/find-doctors" style={{ fontWeight: 700 }}>Find Bombay, Apollo & Fortis doctors available for appointment →</Link>
           </div>
           <Appointments role="patient" doctors={links} />
+        </section>
+      )}
+
+      {tab === 'compare' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-teal">🔄</span> What Changed Since Last Report</h3>
+          <CompareReports docs={docs} />
+        </section>
+      )}
+
+      {tab === 'vitals' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-rose">❤️</span> Vitals Tracker</h3>
+          <VitalsTracker role="patient" />
+        </section>
+      )}
+
+      {tab === 'vaccines' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-violet">💉</span> Vaccination Tracker</h3>
+          <VaccinationTracker role="patient" />
+        </section>
+      )}
+
+      {tab === 'share' && (
+        <div className="rise">
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-blue">🔗</span> Secure Share + QR</h3>
+            <ShareManager />
+          </section>
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-amber">🔐</span> Granular Consent — what doctors see</h3>
+            <ConsentManager doctors={links} />
+          </section>
+        </div>
+      )}
+
+      {tab === 'chat' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-teal">💬</span> Chat With Doctor</h3>
+          <ChatBox role="patient" />
+        </section>
+      )}
+
+      {tab === 'opinions' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-violet">🧠</span> Second Opinions</h3>
+          <SecondOpinionBox role="patient" doctors={links} />
         </section>
       )}
 

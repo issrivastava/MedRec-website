@@ -11,6 +11,13 @@ import Appointments from '../components/Appointments'
 import { LabRanges } from '../components/Alerts'
 import { MyReviews } from '../components/Reviews'
 import { EmergencyInbox } from '../components/EmergencyButton'
+import VitalsTracker from '../components/VitalsTracker'
+import VaccinationTracker from '../components/VaccinationTracker'
+import ChatBox from '../components/ChatBox'
+import CompareReports from '../components/CompareReports'
+import RiskDashboard from '../components/RiskDashboard'
+import { RxTemplates, ReferralBox, SecondOpinionBox, VoiceReader } from '../components/CareTools'
+import { DocAIActions } from '../components/SmartUpload'
 
 export default function DoctorDashboard() {
   const { user } = useAuth()
@@ -76,8 +83,12 @@ export default function DoctorDashboard() {
 
   const summarize = async (id) => {
     setSummary({ loading: true })
-    const { data } = await api.post(`/api/documents/${id}/summarize`, null, { params: { language: lang } })
-    setSummary(data)
+    try {
+      const { data } = await api.post(`/api/documents/${id}/summarize`, null, { params: { language: lang } })
+      setSummary(data)
+    } catch (err) {
+      setSummary({ error: err.response?.data?.detail || 'Could not generate summary.' })
+    }
   }
 
   const raiseSosForPatient = async (e) => {
@@ -105,9 +116,12 @@ export default function DoctorDashboard() {
     { key: 'overview', label: 'Overview', icon: '🏠' },
     { key: 'emergency', label: 'Emergency', icon: '🚨', badge: emgCount },
     { key: 'patients', label: 'Patients', icon: '🧑‍🤝‍🧑', badge: patients.length },
+    { key: 'risk', label: 'Risk Board', icon: '🔥' },
     { key: 'rx', label: 'Prescriptions', icon: '✍️' },
     { key: 'schedule', label: 'Schedule', icon: '📅', badge: booked.length },
     { key: 'alerts', label: 'Lab Alerts', icon: '⚠️', badge: alerts.filter((a) => !a.acknowledged).length },
+    { key: 'chat', label: 'Chat', icon: '💬' },
+    { key: 'care', label: 'Referrals', icon: '🔁' },
     { key: 'medicines', label: 'Medicine Description', icon: '💊', to: '/medicines' },
     { key: 'diseases', label: 'Disease Description', icon: '🩺', to: '/diseases' },
     { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai' },
@@ -253,9 +267,15 @@ export default function DoctorDashboard() {
                     <span className={`tile ${kindIcon(d.report_kind, ['📄', 't-amber'])[1]}`}>{kindIcon(d.report_kind, ['📄', 't-amber'])[0]}</span>
                     <div className="grow">
                       <b>{d.title}</b> <span className="pill pill-info">{kindLabel(d.report_kind) || d.doc_type}</span>
+                      {(d.file_size || 0) === 0
+                        ? <span className="pill pill-open" style={{ marginLeft: 6 }}>⚠️ empty file</span>
+                        : d.has_text
+                          ? <span className="pill pill-ok" style={{ marginLeft: 6 }}>📝 text ready</span>
+                          : <span className="pill" style={{ marginLeft: 6, background: '#fef3c7' }}>🖼️ image-only</span>}
                       <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}</div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                        <button onClick={() => summarize(d.id)}>AI summary</button>
+                        <button onClick={() => summarize(d.id)} disabled={(d.file_size || 0) === 0}>AI summary</button>
+                        <DocAIActions doc={d} canApply={false} />
                         {(d.file_mimetype || '').startsWith('video')
                           ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
                           : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
@@ -267,7 +287,10 @@ export default function DoctorDashboard() {
                 {summary && (
                   <div style={s.summary}>
                     <b>AI report ({summary.model_used || ''}, {summary.language || lang}):</b>
-                    {summary.loading ? <p>Generating…</p> : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
+                    {!summary.loading && summary.summary_text && <VoiceReader text={summary.summary_text} />}
+                    {summary.loading ? <p>Generating… (~10–30s first run)</p>
+                      : summary.error ? <p style={{ color: '#b91c1c' }}>⚠️ {summary.error}</p>
+                        : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
                   </div>
                 )}
               </section>
@@ -277,12 +300,18 @@ export default function DoctorDashboard() {
       )}
 
       {tab === 'rx' && (
-        <section style={s.card} className="rise">
-          <h3 className="sec-head"><span className="tile t-violet">✍️</span> Write E-Prescription / Visit Note</h3>
-          {!selected && <div className="empty">Select a patient in the Patients tab first.</div>}
-          {selected && <p>Writing for: <b>{selName}</b></p>}
-          {selected && <VisitNotes role="doctor" patientId={selected} />}
-        </section>
+        <div className="rise">
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-violet">📋</span> My Rx Templates (reusable + signed PDF)</h3>
+            <RxTemplates />
+          </section>
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-violet">✍️</span> Write E-Prescription / Visit Note</h3>
+            {!selected && <div className="empty">Select a patient in the Patients tab first.</div>}
+            {selected && <p>Writing for: <b>{selName}</b></p>}
+            {selected && <VisitNotes role="doctor" patientId={selected} />}
+          </section>
+        </div>
       )}
 
       {tab === 'schedule' && (
@@ -308,6 +337,49 @@ export default function DoctorDashboard() {
           <h3 className="sec-head"><span className="tile t-amber">⭐</span> My Reviews</h3>
           <MyReviews role="doctor" />
         </section>
+      )}
+      {tab === 'risk' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-rose">🔥</span> Patient Risk Board</h3>
+          <RiskDashboard />
+        </section>
+      )}
+      {tab === 'chat' && (
+        <section style={s.card} className="rise">
+          <h3 className="sec-head"><span className="tile t-teal">💬</span> Patient Chat</h3>
+          {!selected && <p style={{ color: '#64748b' }}>Select a patient in Patients tab, or pick from inbox.</p>}
+          <ChatBox role="doctor" patientId={selected} />
+        </section>
+      )}
+      {tab === 'care' && (
+        <div className="rise">
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-blue">🔁</span> Referrals</h3>
+            <ReferralBox role="doctor" patientId={selected} />
+          </section>
+          <section style={s.card}>
+            <h3 className="sec-head"><span className="tile t-violet">🧠</span> Second-Opinion Requests</h3>
+            <SecondOpinionBox role="doctor" />
+          </section>
+          {selected && (
+            <section style={s.card}>
+              <h3 className="sec-head"><span className="tile t-rose">❤️</span> Vitals — {selName}</h3>
+              <VitalsTracker role="doctor" patientId={selected} />
+            </section>
+          )}
+          {selected && (
+            <section style={s.card}>
+              <h3 className="sec-head"><span className="tile t-violet">💉</span> Vaccinations — {selName}</h3>
+              <VaccinationTracker role="doctor" patientId={selected} />
+            </section>
+          )}
+          {selected && (
+            <section style={s.card}>
+              <h3 className="sec-head"><span className="tile t-teal">🔄</span> What Changed — {selName}</h3>
+              <CompareReports docs={docs} patientId={selected} />
+            </section>
+          )}
+        </div>
       )}
     </DashboardLayout>
   )

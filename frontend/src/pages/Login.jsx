@@ -4,9 +4,20 @@ import { useAuth } from '../context/AuthContext'
 import AuthSplit from '../components/AuthSplit'
 
 function friendlyError(e, fallback) {
+  if (!e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error' || String(e.message || '').toLowerCase().includes('network'))) {
+    return 'Cannot reach the server — is the backend running on http://localhost:8000? (If it just restarted, wait 10s and retry.)'
+  }
+  if (e.code === 'ECONNABORTED' || String(e.message || '').toLowerCase().includes('timeout')) {
+    return 'Server took too long — it may be waking up (Ollama cold start). Wait 30s and retry.'
+  }
+  if (e.code === 'auth/network-request-failed') return 'Cannot reach Google servers — check your internet and retry.'
   const d = e.response?.data?.detail
   if (!d) return e.message || fallback
   if (typeof d === 'object') return d.message || fallback
+  const low = String(d).toLowerCase()
+  if (low.includes('too early') || low.includes('before it became valid') || (low.includes('clock') && low.includes('token'))) {
+    return 'Server clock was a moment behind Google — wait 3 seconds and retry. (If it keeps happening, restart the backend to pick up the 30s skew tolerance and sync the backend clock.)'
+  }
   if (d === 'role_required' || String(d).includes('role_required')) return 'Please pick patient or doctor below.'
   return String(d)
 }
@@ -22,7 +33,7 @@ export default function Login() {
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
   const [linkStep, setLinkStep] = useState('idle') // idle|sent|complete
-  const { firebaseConfigured, firebaseLogin, googleLogin, needsRole, completeRole, login, requestOtp, verifyOtpLogin, sendEmailLink, isEmailLink, completeEmailLink } = useAuth()
+  const { firebaseConfigured, firebaseLogin, googleLogin, needsRole, completeRole, login, requestOtp, verifyOtpLogin, sendEmailLink, isEmailLink, completeEmailLink, otpSentMessage } = useAuth()
   const nav = useNavigate()
   const go = (u) => nav(u.role === 'doctor' ? '/doctor' : u.role === 'admin' ? '/admin' : '/patient')
 
@@ -67,9 +78,18 @@ export default function Login() {
 
   const submitLocal = async (e) => {
     e.preventDefault()
-    setErr('')
+    setErr(''); setInfo('')
     try {
-      go(await login(email, password))
+      const out = await login(email, password)
+      if (out.otp_required) {
+        // Step 1 OK (password) -> step 2: same OTP went to email + SMS.
+        setMode('otp')
+        setOtpSent(out)
+        setOtp('')
+        setInfo(otpSentMessage(out, email))
+      } else if (out.user) {
+        go(out.user)
+      }
     } catch (e) { setErr(friendlyError(e, 'Login failed')) }
   }
 
@@ -79,9 +99,7 @@ export default function Login() {
     try {
       const out = await requestOtp(email, 'login')
       setOtpSent(out)
-      setInfo(out.dev_code
-        ? `Dev mode (no SMTP server): your code is ${out.dev_code}`
-        : `Code sent to ${email} — check your inbox (valid ${out.expires_in_minutes} min).`)
+      setInfo(otpSentMessage(out, email))
     } catch (e) { setErr(friendlyError(e, 'Could not send code')) }
   }
 
@@ -182,26 +200,29 @@ export default function Login() {
           )}
           <div style={s.tabs}>
             <button onClick={() => setMode('password')} style={mode === 'password' ? s.tabActive : s.tab}>Password</button>
-            <button onClick={() => setMode('otp')} style={mode === 'otp' ? s.tabActive : s.tab}>Email OTP</button>
+            <button onClick={() => setMode('otp')} style={mode === 'otp' ? s.tabActive : s.tab}>OTP (Email + SMS)</button>
           </div>
           {mode === 'password' ? (
             <form onSubmit={submitLocal} style={s.form}>
-              <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
+              <p style={s.note}>2-step login: password first, then <b>one code</b> is sent to <b>both</b> your email and phone.</p>
+              <input placeholder="Email or phone" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
               <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={s.input} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
+              {info && <p style={{ color: 'green' }}>{info}</p>}
               <button type="submit" style={s.btn}>Login</button>
             </form>
           ) : !otpSent ? (
             <form onSubmit={sendOtp} style={s.form}>
-              <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
+              <p style={s.note}>One code is sent to <b>both</b> your email and phone (SMS) — enter either to identify yourself.</p>
+              <input placeholder="Email or phone" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
               {info && <p style={{ color: 'green' }}>{info}</p>}
               <button type="submit" style={s.btn}>Send login code</button>
             </form>
           ) : (
             <form onSubmit={submitOtp} style={s.form}>
-              <p style={s.note}>Code sent to <b>{email}</b>. {otpSent.dev_code ? `Dev code: ${otpSent.dev_code}` : ''}</p>
-              {otpSent.dev_code && <p style={s.hint}>No mail server is set up, so the code shows here. To mail codes instead: set MAIL_* in backend/.env (Gmail app password, see .env.example) and restart the backend — or connect Firebase and use the mailed sign-in link.</p>}
+              <p style={s.note}>Same code was sent to your <b>email and phone</b> for <b>{email}</b>. {otpSent.dev_code ? `Dev code: ${otpSent.dev_code}` : ''}</p>
+              {otpSent.dev_code && <p style={s.hint}>No mail/SMS server is set up, so the code shows here. To send for real: set MAIL_* and SMS_WEBHOOK_URL in backend/.env (see .env.example) and restart the backend — or connect Firebase and use the mailed sign-in link.</p>}
               <input placeholder="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value)} required style={s.input} inputMode="numeric" maxLength={6} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
               {info && <p style={{ color: 'green' }}>{info}</p>}

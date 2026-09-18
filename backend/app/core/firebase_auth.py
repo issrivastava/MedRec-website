@@ -83,7 +83,12 @@ def _ensure_init() -> None:
 
 
 def verify_id_token(id_token: str) -> dict:
-    """Returns {uid, email, name, picture}. Raises RuntimeError/ValueError."""
+    """Returns {uid, email, name, picture}.
+
+    Raises RuntimeError when Firebase isn't configured, ValueError with a
+    SPECIFIC reason (expired / revoked / wrong-project / bad-signature /
+    no-email) so the API can tell the user what actually failed.
+    """
     if not is_configured():
         raise RuntimeError(
             "Firebase login is not configured: set FIREBASE_CREDENTIALS_PATH "
@@ -92,7 +97,39 @@ def verify_id_token(id_token: str) -> dict:
     _ensure_init()
     from firebase_admin import auth as fb_auth
 
-    decoded = fb_auth.verify_id_token(id_token)
+    try:
+        # clock_skew_seconds tolerates small differences between Google's
+        # servers and this backend's system clock. Without it, a brand-new
+        # token can be rejected with "Token used too early, iat < now"
+        # when the backend clock is even 1s behind (see screenshot).
+        try:
+            decoded = fb_auth.verify_id_token(id_token, check_revoked=True, clock_skew_seconds=30)
+        except TypeError:
+            # Very old firebase-admin without the clock_skew_seconds kwarg.
+            decoded = fb_auth.verify_id_token(id_token, check_revoked=True)
+    except Exception as exc:  # noqa: BLE001 - map SDK errors to clear reasons
+        name = type(exc).__name__
+        msg = str(exc) or name
+        low_all = msg.lower()
+        if "used too early" in low_all or "token used too" in low_all or "iat" in low_all and "future" in low_all:
+            raise ValueError(
+                "Login token arrived a moment before it became valid (server clock slightly behind Google's) — "
+                "please wait 3 seconds and retry"
+            ) from exc
+        if "ExpiredIdToken" in name or "expired" in msg.lower():
+            raise ValueError("Firebase token expired — please sign in again (tokens last 1 hour)") from exc
+        if "RevokedIdToken" in name or "revoked" in msg.lower():
+            raise ValueError("Firebase session was revoked — please sign in again") from exc
+        if "CertificateFetch" in name or "certificate" in msg.lower():
+            raise ValueError("Could not reach Google to verify the token (network/DNS) — retry in a minute") from exc
+        low = msg.lower()
+        if "audience" in low or "project" in low or "issuer" in low or "mismatch" in low:
+            raise ValueError(
+                "Token was issued for a DIFFERENT Firebase project than the backend verifies "
+                f"(backend project: {settings.FIREBASE_CREDENTIALS_PATH or 'ADC'}). "
+                "Make frontend VITE_FIREBASE_* keys and backend service-account JSON come from the SAME project."
+            ) from exc
+        raise ValueError(f"Firebase token rejected ({name}): {msg[:220]}") from exc
     email = (decoded.get("email") or "").lower()
     if not email:
         raise ValueError("Firebase token has no email (enable Email provider)")

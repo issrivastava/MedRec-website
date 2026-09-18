@@ -6,6 +6,7 @@ from app.api.routes import medicines
 from app.api.routes import diseases
 from app.api.routes import hospitals
 from app.api.routes import assistant
+from app.api.routes import wellness, sharing, messages, care, compare
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -30,3 +31,8 @@ api_router.include_router(medicines.router, prefix="/medicines", tags=["medicine
 api_router.include_router(diseases.router, prefix="/diseases", tags=["diseases"])
 api_router.include_router(hospitals.router, prefix="/hospitals", tags=["hospitals"])
 api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
+api_router.include_router(wellness.router, prefix="/wellness", tags=["wellness"])
+api_router.include_router(sharing.router, prefix="/sharing", tags=["sharing"])
+api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
+api_router.include_router(care.router, prefix="/care", tags=["care"])
+api_router.include_router(compare.router, prefix="/compare", tags=["compare"])

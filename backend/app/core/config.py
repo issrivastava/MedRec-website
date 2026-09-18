@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
     OLLAMA_TIMEOUT_SEC: int = 120
+    # Better document understanding (optional, pulled on demand):
+    #   ollama pull qwen2.5:7b     (sharper extraction / classification)
+    #   ollama pull moondream      (tiny vision model — reads scan photos directly)
+    OLLAMA_FALLBACK_MODEL: str = "qwen2.5:7b"
+    OLLAMA_VISION_MODEL: str = "moondream"
+    OLLAMA_UNDERSTAND_TIMEOUT_SEC: int = 180
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     FIREBASE_CREDENTIALS_PATH: str = ""  # path to Firebase service-account JSON; empty = Firebase login disabled
     ADMIN_SIGNUP_KEY: str = ""  # required as admin_key to register role=admin; empty = disabled
@@ -22,6 +28,8 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: str = ""
     MAIL_FROM: str = ""
     SMS_WEBHOOK_URL: str = ""  # POST {to, message} as JSON when set
+    SMS_DEFAULT_PREFIX: str = "+91"  # prepended to bare 10-digit numbers
+    SMS_SENDER_ID: str = "MedRec"  # sent as {from} in the webhook payload when supported
     OTP_EXPIRE_MINUTES: int = 10  # how long an email OTP stays valid
     OTP_RESEND_SECONDS: int = 60  # min gap between OTP requests per email+purpose
     OTP_MAX_ATTEMPTS: int = 5  # wrong-code attempts before the code is voided

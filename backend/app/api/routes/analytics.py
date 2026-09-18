@@ -172,3 +172,40 @@ def analytics_overview(
     tests = sorted({r.test_key for r in lq.all()})
     return {"patient_id": pid, "documents": docs, "lab_values": labs, "prescriptions": prescriptions,
             "tracked_tests": tests}
+
+
+@router.get("/risk", response_model=dict)
+def risk_dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Doctor risk board: assigned patients scored by active SOS, unacked alerts,
+    abnormal labs, overdue vaccinations. Patients see own score."""
+    from app.models.tables import (DoctorPatientAssignment, HealthAlert, EmergencyAlert,
+                                   Vaccination)
+    from datetime import date
+    if user.role == "doctor":
+        links = db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id).all()
+        pids = [l.patient_id for l in links]
+    elif user.role == "patient":
+        pids = [user.id]
+    else:
+        pids = [u.id for u in db.query(User).filter_by(role="patient").limit(200).all()]
+    board = []
+    for pid in pids:
+        p = db.query(User).filter_by(id=pid).first()
+        if not p:
+            continue
+        active_sos = db.query(EmergencyAlert).filter_by(patient_id=pid, status="active").count()
+        unacked = db.query(HealthAlert).filter_by(patient_id=pid, acknowledged=False).count()
+        abnormal = db.query(LabResult).filter_by(owner_id=pid).filter(LabResult.flag.in_(["low", "high"])).count()
+        overdue_vac = db.query(Vaccination).filter_by(owner_id=pid, status="due").filter(
+            Vaccination.due_date < date.today()).count()
+        score = active_sos * 10 + unacked * 3 + min(abnormal, 10) + overdue_vac
+        level = "critical" if score >= 10 else ("watch" if score >= 3 else "stable")
+        board.append({"patient_id": pid, "patient_name": p.full_name, "patient_email": p.email,
+                      "score": score, "level": level, "active_sos": active_sos,
+                      "unacked_alerts": unacked, "abnormal_labs": abnormal,
+                      "overdue_vaccinations": overdue_vac})
+    board.sort(key=lambda r: r["score"], reverse=True)
+    return {"count": len(board),
+            "critical": sum(1 for r in board if r["level"] == "critical"),
+            "watch": sum(1 for r in board if r["level"] == "watch"),
+            "patients": board[:100]}

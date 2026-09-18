@@ -30,7 +30,15 @@ def _appt_out(db: Session, a: Appointment) -> dict:
             "doctor_name": d.full_name if d else None, "patient_name": p.full_name if p else None,
             "date": a.date, "start_time": a.start_time.strftime("%H:%M"),
             "end_time": a.end_time.strftime("%H:%M"), "reason": a.reason,
-            "status": a.status, "created_at": a.created_at}
+            "status": a.status, "consult_type": getattr(a, "consult_type", "in_person") or "in_person",
+            "video_url": getattr(a, "video_url", None),
+            "cancel_reason": getattr(a, "cancel_reason", None),
+            "created_at": a.created_at}
+
+
+def _ensure_video(a: Appointment) -> None:
+    if getattr(a, "consult_type", None) == "video" and not getattr(a, "video_url", None):
+        a.video_url = f"https://meet.jit.si/MedRec-{str(a.id)[:8]}"
 
 
 # ---- availability ----
@@ -96,10 +104,17 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
         raise HTTPException(status_code=400, detail="Slot already booked")
     a = Appointment(doctor_id=data.doctor_id, patient_id=user.id, date=data.date,
                     start_time=start, end_time=slot.end_time, reason=data.reason,
-                    family_member_id=data.family_member_id)
+                    family_member_id=data.family_member_id,
+                    consult_type=getattr(data, "consult_type", "in_person") or "in_person")
     db.add(a)
     db.commit()
     db.refresh(a)
+    try:
+        _ensure_video(a)
+        db.commit()
+        db.refresh(a)
+    except Exception:
+        pass
     doc = db.query(User).filter_by(id=data.doctor_id).first()
     notify(db, data.doctor_id, "appointment",
            f"New appointment: {user.full_name} on {data.date} {data.start_time}",
@@ -122,7 +137,9 @@ def my_appointments(db: Session = Depends(get_db), user: User = Depends(get_curr
 
 
 @router.patch("/appointments/{appt_id}", response_model=AppointmentOut)
-def set_status(appt_id: str, status: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def set_status(appt_id: str, status: str, cancel_reason: str | None = None,
+               consult_type: str | None = None,
+               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if status not in ("booked", "cancelled", "completed"):
         raise HTTPException(status_code=400, detail="Invalid status")
     a = db.query(Appointment).filter_by(id=appt_id).first()
@@ -133,6 +150,17 @@ def set_status(appt_id: str, status: str, db: Session = Depends(get_db), user: U
     if user.role == "doctor" and a.doctor_id != user.id:
         raise HTTPException(status_code=403, detail="Not yours")
     a.status = status
+    if cancel_reason is not None:
+        try:
+            a.cancel_reason = cancel_reason
+        except Exception:
+            pass
+    if consult_type in ("in_person", "video"):
+        try:
+            a.consult_type = consult_type
+            _ensure_video(a)
+        except Exception:
+            pass
     db.commit()
     other = a.doctor_id if user.role == "patient" else a.patient_id
     notify(db, other, "appointment", f"Appointment {status}: {a.date} {a.start_time.strftime('%H:%M')}",

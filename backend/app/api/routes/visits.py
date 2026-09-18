@@ -76,3 +76,59 @@ def delete_note(note_id: str, db: Session = Depends(get_db), user: User = Depend
     db.delete(v)
     db.commit()
     return None
+
+
+@router.get("/{note_id}/rx-pdf")
+def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """E-prescription PDF with doctor letterhead + signature block.
+
+    Patients download own; assigned doctor downloads. Signature name comes from
+    the doctor's latest RxTemplate.signature_name or their full name."""
+    from fastapi.responses import Response
+    from io import BytesIO
+    v = db.query(VisitNote).filter_by(id=note_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.role == "patient" and v.patient_id != user.id:
+        raise HTTPException(status_code=403, detail="Not yours")
+    if user.role == "doctor" and v.doctor_id != user.id and not is_assigned(db, user.id, v.patient_id):
+        raise HTTPException(status_code=403, detail="Not yours")
+    doc = db.query(User).filter_by(id=v.doctor_id).first()
+    pat = db.query(User).filter_by(id=v.patient_id).first()
+    from app.models.tables import RxTemplate
+    tpl = db.query(RxTemplate).filter_by(doctor_id=v.doctor_id).order_by(RxTemplate.created_at.desc()).first()
+    sig = (tpl.signature_name if tpl and tpl.signature_name else (doc.full_name if doc else "Doctor"))
+    spec = ""
+    try:
+        if doc and doc.doctor_profile:
+            spec = f"{doc.doctor_profile.specialization or ''} {doc.doctor_profile.license_no or ''}".strip()
+    except Exception:
+        pass
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.units import mm
+    buf = BytesIO()
+    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(f"<b>Dr. {doc.full_name if doc else ''}</b>{(' — ' + spec) if spec else ''}", styles["Title"]),
+        Paragraph("E-Prescription · MedRec", styles["Normal"]),
+        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
+        Paragraph(f"Patient: <b>{pat.full_name if pat else ''}</b> · Date: {v.visit_date or v.created_at.date()}", styles["Normal"]),
+        Paragraph(f"Title: {v.title or '(prescription)'}", styles["Normal"]), Spacer(1, 6),
+        Paragraph((v.content or "").replace(chr(10), "<br/>"), styles["Normal"]), Spacer(1, 6),
+    ]
+    for m in v.medicines or []:
+        story.append(Paragraph(
+            f"• <b>{m.get('name')}</b> — {m.get('dosage') or ''} {m.get('frequency') or ''} x {m.get('duration') or ''}",
+            styles["Normal"]))
+    story += [Spacer(1, 12), HRFlowable(width="40%", thickness=1, hAlign="RIGHT"),
+              Paragraph(f"<para alignment=right>Signature: <b>{sig}</b><br/>Date: {v.visit_date or v.created_at.date()}</para>",
+                        styles["Normal"]),
+              Spacer(1, 6),
+              Paragraph("<i>Computer-generated via MedRec. Follow your doctor's advice; do not self-medicate.</i>",
+                        styles["Italic"])]
+    pdf.build(story)
+    return Response(content=buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="rx-{note_id[:8]}.pdf"'})

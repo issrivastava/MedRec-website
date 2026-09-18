@@ -2,7 +2,13 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
+  timeout: 30000, // 30s: fail loudly instead of hanging forever
 })
+
+// Local Ollama needs much longer: cold model load + generation on CPU can
+// take 1–3 min. Use { timeout: AI_TIMEOUT } on AI calls (summaries,
+// understanding, assistant chat) so the 30s default doesn't abort them.
+export const AI_TIMEOUT = 180000
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('medrec_token')

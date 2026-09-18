@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import { RxTemplates } from './CareTools'
 
 /* Doctor e-prescriptions / visit notes.
    Patient view: list mine. Doctor view: composer + list for selected patient. */
 export default function VisitNotes({ role, patientId }) {
   const [notes, setNotes] = useState([])
   const [form, setForm] = useState({ note_type: 'prescription', title: '', content: '', medicines: '', visit_date: '', follow_up_date: '' })
+  const [showTpl, setShowTpl] = useState(false)
 
   const load = async () => {
     const url = role === 'doctor' ? `/api/visits/patient/${patientId}` : '/api/visits/my'
@@ -31,6 +33,14 @@ export default function VisitNotes({ role, patientId }) {
     <div>
       {role === 'doctor' && patientId && (
         <form onSubmit={create} style={s.form}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={() => setShowTpl((v) => !v)}>{showTpl ? 'Hide templates' : '📋 Rx templates'}</button>
+          </div>
+          {showTpl && <RxTemplates onInsert={(t) => {
+            const medLines = (t.medicines || []).map((m) => `${m.name} | ${m.dosage || ''} | ${m.frequency || ''} | ${m.duration || ''}`).join('\n')
+            setForm((f) => ({ ...f, content: t.content || f.content, medicines: medLines || f.medicines, title: f.title || t.name }))
+            setShowTpl(false)
+          }} />}
           <select value={form.note_type} onChange={(e) => setForm({ ...form, note_type: e.target.value })} style={s.input}>
             <option value="prescription">E-Prescription</option>
             <option value="note">Visit note</option>
@@ -53,6 +63,14 @@ export default function VisitNotes({ role, patientId }) {
             <div key={i} style={s.med}>💊 <b>{m.name}</b>{m.dosage ? ` — ${m.dosage}` : ''}{m.frequency ? ` · ${m.frequency}` : ''}{m.duration ? ` × ${m.duration}` : ''}</div>
           ))}
           {n.follow_up_date && <div>Follow-up: {n.follow_up_date}</div>}
+          <div style={{ marginTop: 6 }}>
+            <button onClick={async () => {
+              const res = await api.get(`/api/visits/${n.id}/rx-pdf`, { responseType: 'blob' })
+              const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+              const a = document.createElement('a'); a.href = url; a.download = `rx-${n.id.slice(0, 8)}.pdf`
+              document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000)
+            }}>⬇ Rx PDF (signed)</button>
+          </div>
         </div>
       ))}
       {!notes.length && <p>No notes yet.</p>}

@@ -25,11 +25,20 @@ def _ensure_columns() -> None:
         visit_cols = [c["name"] for c in insp.get_columns("visit_notes")] if "visit_notes" in tables else []
         appt_cols = [c["name"] for c in insp.get_columns("appointments")] if "appointments" in tables else []
         alert_cols = [c["name"] for c in insp.get_columns("health_alerts")] if "health_alerts" in tables else []
+        appt_extra = [c["name"] for c in insp.get_columns("appointments")] if "appointments" in tables else []
         with engine.begin() as conn:
             if "avatar_path" not in user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN avatar_path VARCHAR(1024)"))
             if "firebase_uid" not in user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN firebase_uid VARCHAR(128)"))
+            if "phone" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(20)"))
+            try:
+                otp_cols = [c["name"] for c in insp.get_columns("otp_codes")] if "otp_codes" in tables else []
+                if otp_cols and "phone" not in otp_cols:
+                    conn.execute(text("ALTER TABLE otp_codes ADD COLUMN phone VARCHAR(20)"))
+            except Exception:
+                pass
             if "family_member_id" not in doc_cols:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN family_member_id VARCHAR(36)"))
             if "category" not in doc_cols:
@@ -58,6 +67,16 @@ def _ensure_columns() -> None:
                 conn.execute(text("ALTER TABLE appointments ADD COLUMN family_member_id VARCHAR(36)"))
             if alert_cols and "family_member_id" not in alert_cols:
                 conn.execute(text("ALTER TABLE health_alerts ADD COLUMN family_member_id VARCHAR(36)"))
+            for col, ddl in [
+                ("consult_type", "VARCHAR(20) DEFAULT 'in_person'"),
+                ("video_url", "VARCHAR(1024)"),
+                ("cancel_reason", "VARCHAR(500)"),
+            ]:
+                if appt_extra and col not in appt_extra:
+                    try:
+                        conn.execute(text(f"ALTER TABLE appointments ADD COLUMN {col} {ddl}"))
+                    except Exception:
+                        pass
     except Exception:
         pass  # fresh create_all already covers new databases
 
@@ -86,6 +105,24 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc):
+    """Return JSON (with CORS headers) for unhandled crashes.
+
+    Without this, Starlette's plain-text 500 bypasses CORSMiddleware, so the
+    browser reports 'Network Error' and the real traceback is only visible
+    in this terminal. HTTPException keeps its own handler — this is only
+    for genuine bugs."""
+    import traceback
+
+    traceback.print_exc()
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=500, content={
+        "detail": f"Server error: {type(exc).__name__}: {str(exc)[:300]}",
+    })
 
 avatar_dir = Path(settings.UPLOAD_DIR) / "avatars"
 avatar_dir.mkdir(parents=True, exist_ok=True)

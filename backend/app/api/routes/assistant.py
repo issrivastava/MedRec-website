@@ -42,6 +42,8 @@ class ChatMsg(BaseModel):
 class AskIn(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     history: list[ChatMsg] = Field(default_factory=list, max_length=12)
+    use_records: bool = False
+    patient_id: str | None = None  # doctors: which assigned patient to ground on
 
 
 def _history_text(history: list[ChatMsg]) -> str:
@@ -107,18 +109,57 @@ def assistant_status():
 
 @router.post("/ask")
 async def ask_assistant(data: AskIn, user: User = Depends(get_current_user)):
-    """Ask a health/app doubt. Auth required. Returns {answer, engine}."""
+    """Ask a health/app doubt. Auth required. Returns {answer, engine}.
+
+    Pass use_records=true to ground the answer in the patient's own MedRec
+    data (recent summaries, vitals, prescriptions). Doctors pass patient_id
+    for an assigned patient; patients are auto-scoped to self."""
+    from app.db.session import SessionLocal
+    records_ctx = ""
+    if data.use_records:
+        try:
+            db = SessionLocal()
+            try:
+                from app.core.deps import resolve_patient_id
+                from app.models.tables import Document, AiSummary, Vital, VisitNote
+                pid = resolve_patient_id(db, user, data.patient_id)
+                docs = db.query(Document).filter_by(owner_id=pid).order_by(
+                    Document.visit_date.desc().nullslast()).limit(5).all()
+                parts = []
+                for d in docs:
+                    s = db.query(AiSummary).filter_by(document_id=d.id).first()
+                    snippet = (s.summary_text[:600] if s else (d.ocr_text or "")[:600])
+                    parts.append(f"- {d.title} ({d.visit_date}, {d.report_kind or d.doc_type}): {snippet}")
+                vitals = db.query(Vital).filter_by(owner_id=pid).order_by(Vital.measured_at.desc()).limit(8).all()
+                for v in vitals:
+                    if v.vital_type == "bp":
+                        parts.append(f"- BP {v.systolic}/{v.diastolic} mmHg on {v.measured_at}")
+                    elif v.value is not None:
+                        parts.append(f"- {v.vital_type} {v.value} {v.unit or ''} on {v.measured_at}")
+                notes = db.query(VisitNote).filter_by(patient_id=pid).order_by(VisitNote.created_at.desc()).limit(3).all()
+                for n in notes:
+                    parts.append(f"- Dr note [{n.note_type}] {n.title or ''}: {(n.content or '')[:400]}")
+                if parts:
+                    records_ctx = ("\n\nPatient's own MedRec context (use for grounding, "
+                                   "cite dates; never invent values):\n" + "\n".join(parts[:20]))
+            finally:
+                db.close()
+        except Exception:
+            records_ctx = ""
+    question = data.question + records_ctx if records_ctx else data.question
     errors: list[str] = []
     if settings.GEMINI_API_KEY:
         try:
-            return {"answer": await _ask_gemini(data.question, data.history),
+            return {"answer": await _ask_gemini(question, data.history),
                     "engine": f"gemini:{settings.GEMINI_MODEL}",
+                    "used_records": bool(records_ctx),
                     "disclaimer": _DISCLAIMER}
         except Exception as exc:
             errors.append(f"Gemini: {exc}")
     try:
-        return {"answer": await _ask_ollama(data.question, data.history),
+        return {"answer": await _ask_ollama(question, data.history),
                 "engine": f"ollama:{settings.OLLAMA_MODEL}",
+                "used_records": bool(records_ctx),
                 "disclaimer": _DISCLAIMER}
     except Exception as exc:
         errors.append(f"Ollama: {exc}")

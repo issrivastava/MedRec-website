@@ -26,6 +26,34 @@ def stats(db: Session = Depends(get_db), user: User = Depends(require_admin)):
     )
 
 
+@router.get("/activity", response_model=dict)
+def activity(db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    """Extended admin insight: new-feature usage + recent signups + risk counts."""
+    from app.models.tables import Vital, Vaccination, ShareLink, Message, Referral, SecondOpinion, Announcement
+    def _count(model):
+        try:
+            return db.query(func.count(model.id)).scalar() or 0
+        except Exception:
+            return 0
+    recent = db.query(User).order_by(User.created_at.desc()).limit(10).all()
+    try:
+        risk_critical = None
+        from app.models.tables import EmergencyAlert, HealthAlert
+        risk_critical = db.query(func.count(EmergencyAlert.id)).filter_by(status="active").scalar() or 0
+        unacked = db.query(func.count(HealthAlert.id)).filter_by(acknowledged=False).scalar() or 0
+    except Exception:
+        risk_critical, unacked = 0, 0
+    return {
+        "vitals": _count(Vital), "vaccinations": _count(Vaccination),
+        "share_links": _count(ShareLink), "messages": _count(Message),
+        "referrals": _count(Referral), "second_opinions": _count(SecondOpinion),
+        "announcements": _count(Announcement),
+        "active_sos": risk_critical, "unacked_alerts": unacked,
+        "recent_users": [{"name": u.full_name, "email": u.email, "role": u.role,
+                          "created_at": u.created_at} for u in recent],
+    }
+
+
 @router.get("/users", response_model=list[UserOut])
 def list_users(q: str | None = None, role: str | None = None, db: Session = Depends(get_db),
                user: User = Depends(require_admin)):

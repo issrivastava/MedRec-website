@@ -8,6 +8,7 @@ import { calcAge, formatDate } from '../utils'
 export default function Profile() {
   const { user, refreshUser, logout, deleteAccount, firebaseConfigured } = useAuth()
   const [name, setName] = useState(user?.full_name || '')
+  const [phone, setPhone] = useState(user?.phone || '')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [showDelete, setShowDelete] = useState(false)
@@ -44,11 +45,11 @@ export default function Profile() {
   const saveName = async () => {
     setMsg(''); setErr('')
     try {
-      await api.put('/api/auth/me', { full_name: name })
+      await api.put('/api/auth/me', { full_name: name, phone: phone.trim() || null })
       await refreshUser()
-      setMsg('Profile updated')
+      setMsg('Profile updated — OTP codes will go to this phone by SMS too')
     } catch (e) {
-      setErr('Could not update profile')
+      setErr(e.response?.data?.detail || 'Could not update profile')
     }
   }
 
@@ -143,12 +144,15 @@ export default function Profile() {
           <h3 style={{ marginTop: 0 }}>Account details</h3>
           <label>Full name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} style={s.input} />
+          <label>Phone (for SMS login codes) — e.g. 9876543210</label>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} style={s.input} inputMode="tel" placeholder={user?.phone || 'Not set'} />
           <div style={s.detailGrid}>
             <Detail label={user?.role === 'doctor' ? 'Doctor ID' : 'Patient ID'} mono>
               <span title={user?.id}>{user?.id}</span>{' '}
               <button onClick={copyId} style={s.smallBtn}>{copied ? 'Copied ✓' : 'Copy'}</button>
             </Detail>
             <Detail label="Email">{user?.email}</Detail>
+            <Detail label="Login phone (SMS codes)">{user?.phone || '— (add above)'}</Detail>
             <Detail label="Role"><span className="pill pill-info">{user?.role}</span></Detail>
             <Detail label="Member since">{formatDate(user?.created_at)}</Detail>
             {user?.role === 'patient' && (

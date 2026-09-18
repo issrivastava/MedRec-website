@@ -30,6 +30,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True, index=True, default=None)
     firebase_uid: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True, index=True, default=None)
     avatar_path: Mapped[str | None] = mapped_column(String(1024), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -315,6 +316,9 @@ class Appointment(Base):
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="booked", index=True)  # booked|cancelled|completed
+    consult_type: Mapped[str] = mapped_column(String(20), default="in_person")  # in_person|video
+    video_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -399,6 +403,7 @@ class OtpCode(Base):
 
     id: Mapped[str] = _uuid_col()
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True, default=None)
     purpose: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # login|reset|register
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
@@ -419,4 +424,145 @@ class EmergencyAlert(Base):
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active|resolved
     resolved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# New feature tables: vitals, vaccinations, sharing, consent, chat,
+# referrals, Rx templates, second opinions, announcements.
+# ---------------------------------------------------------------------------
+
+class Vital(Base):
+    """Patient vitals time-series (BP, sugar, weight, BMI, temp, SpO2, pulse)."""
+    __tablename__ = "vitals"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    vital_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # bp|sugar|weight|bmi|temp|spo2|pulse
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    systolic: Mapped[float | None] = mapped_column(Float, nullable=True)
+    diastolic: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    measured_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Vaccination(Base):
+    """Vaccination schedule per profile."""
+    __tablename__ = "vaccinations"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    vaccine_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    dose_no: Mapped[int] = mapped_column(Integer, default=1)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    given_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="due", index=True)  # due|given|missed
+    provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ShareLink(Base):
+    """Time-expiring secure share link for records (public token, no login)."""
+    __tablename__ = "share_links"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(30), default="documents")  # documents|vitals|prescriptions|all
+    document_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)  # None => all docs
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    max_views: Mapped[int] = mapped_column(Integer, default=0)  # 0 = unlimited
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Consent(Base):
+    """Granular per-doctor consent: which scopes a doctor may see."""
+    __tablename__ = "consents"
+    __table_args__ = (UniqueConstraint("patient_id", "doctor_id", "scope", name="uq_consent"),)
+
+    id: Mapped[str] = _uuid_col()
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # records|vitals|prescriptions|chat
+    allowed: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Message(Base):
+    """Secure doctor-patient chat message."""
+    __tablename__ = "messages"
+
+    id: Mapped[str] = _uuid_col()
+    doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sender_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Referral(Base):
+    """Doctor-to-doctor referral for a patient."""
+    __tablename__ = "referrals"
+
+    id: Mapped[str] = _uuid_col()
+    from_doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    to_doctor_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    to_doctor_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending|accepted|declined|completed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class RxTemplate(Base):
+    """Doctor's reusable prescription/note snippet."""
+    __tablename__ = "rx_templates"
+
+    id: Mapped[str] = _uuid_col()
+    doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    medicines: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    signature_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SecondOpinion(Base):
+    """Patient request for a second opinion from another doctor."""
+    __tablename__ = "second_opinions"
+
+    id: Mapped[str] = _uuid_col()
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    target_doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending|answered|closed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Announcement(Base):
+    """Admin broadcast to all / patients / doctors."""
+    __tablename__ = "announcements"
+
+    id: Mapped[str] = _uuid_col()
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    audience: Mapped[str] = mapped_column(String(20), default="all")  # all|patients|doctors
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

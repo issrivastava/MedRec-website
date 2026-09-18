@@ -52,8 +52,10 @@ const ROUTE_HELP = {
   '/doctor': {
     title: '🩺 Doctor dashboard help',
     faqs: [
-      { q: 'How do I see a patient?', a: 'Patients tab → pick them from the dropdown. Only patients linked to you are visible.' },
-      { q: 'Where is their clinical history?', a: 'Open the patient card → "Clinical history (written by patient)" section.' },
+      { q: 'How do I see a patient?', a: 'Open Patients (/doctor/patients) → Search → Records. Only patients linked to you are visible.' },
+      { q: 'Where are patient records?', a: 'Each patient has their own page: /doctor/patients/:id with Records, Lab Alerts, Vitals, Vaccines, Notes and Chat tabs.' },
+      { q: 'Where are my ratings?', a: 'Ratings & Reviews page (/doctor/reviews) shows your average stars and every patient review.' },
+      { q: 'Where is their clinical history?', a: 'Open the patient Records page → top card → "Clinical history (written by patient)" section.' },
     ],
   },
   '/timeline': {

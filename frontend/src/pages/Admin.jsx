@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api'
+import AdminActivity from '../components/AdminActivity'
 
 export default function Admin() {
   const [stats, setStats] = useState(null)
@@ -31,6 +32,7 @@ export default function Admin() {
   return (
     <div style={s.wrap}>
       <h2>Admin Panel</h2>
+      <AdminActivity />
       {stats && (
         <div style={s.grid}>
           {[['Users', stats.users_total], ['Patients', stats.patients], ['Doctors', stats.doctors],
@@ -65,8 +67,7 @@ export default function Admin() {
       </section>
 
       <section style={s.card}>
-        <h3>Contact messages ({msgs.length})</h3>
-        {msgs.map((m) => (
+        <h3>Contact messages ({msgs.length})</h3>        {msgs.map((m) => (
           <div key={m.id} style={s.msg}>
             <b>{m.subject || '(no subject)'}</b> — {m.name} ({m.email}) <small>{m.created_at.slice(0, 10)}</small>
             <p style={{ margin: '4px 0' }}>{m.message}</p>

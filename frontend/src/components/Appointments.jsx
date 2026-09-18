@@ -8,8 +8,9 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export default function Appointments({ role, doctors, patientId }) {
   const [slots, setSlots] = useState([])
   const [appts, setAppts] = useState([])
-  const [book, setBook] = useState({ doctor_id: '', date: '', start_time: '', reason: '' })
+  const [book, setBook] = useState({ doctor_id: '', date: '', start_time: '', reason: '', consult_type: 'in_person' })
   const [docSlots, setDocSlots] = useState([])
+  const [cancelReason, setCancelReason] = useState({})
   const [newSlot, setNewSlot] = useState({ weekday: 0, start_time: '10:00', end_time: '13:00' })
 
   const load = async () => {
@@ -31,12 +32,13 @@ export default function Appointments({ role, doctors, patientId }) {
   const submitBook = async (e) => {
     e.preventDefault()
     await api.post('/api/scheduling/appointments', book)
-    setBook({ doctor_id: '', date: '', start_time: '', reason: '' })
+    setBook({ doctor_id: '', date: '', start_time: '', reason: '', consult_type: 'in_person' })
     load()
   }
 
   const setStatus = async (id, status) => {
-    await api.patch(`/api/scheduling/appointments/${id}?status=${status}`)
+    const reason = cancelReason[id]
+    await api.patch(`/api/scheduling/appointments/${id}?status=${status}${status === 'cancelled' && reason ? `&cancel_reason=${encodeURIComponent(reason)}` : ''}`)
     load()
   }
 
@@ -69,6 +71,9 @@ export default function Appointments({ role, doctors, patientId }) {
             {slotsForDate.map((sl) => <option key={sl.id} value={sl.start_time}>{sl.start_time}–{sl.end_time}</option>)}
           </select>
           <input placeholder="Reason (optional)" value={book.reason} onChange={(e) => setBook({ ...book, reason: e.target.value })} style={s.input} />
+          <select value={book.consult_type} onChange={(e) => setBook({ ...book, consult_type: e.target.value })} style={s.input} title="Visit type">
+            <option value="in_person">🏥 In person</option><option value="video">🎥 Video consult</option>
+          </select>
           <button style={s.btn}>Book</button>
         </form>
       )}
@@ -93,10 +98,18 @@ export default function Appointments({ role, doctors, patientId }) {
       <b>{role === 'doctor' ? 'Appointments' : 'My appointments'} ({appts.length})</b>
       {appts.map((a) => (
         <div key={a.id} style={s.row}>
-          <span>📅 <b>{a.date}</b> at {a.start_time} — {role === 'doctor' ? a.patient_name : `Dr. ${a.doctor_name}`} {a.reason ? `· ${a.reason}` : ''}</span>
-          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span>📅 <b>{a.date}</b> at {a.start_time} — {role === 'doctor' ? a.patient_name : `Dr. ${a.doctor_name}`} {a.reason ? `· ${a.reason}` : ''}
+            {a.consult_type === 'video' ? ' · 🎥 video' : ''}{a.cancel_reason ? ` · cancelled: ${a.cancel_reason}` : ''}<br />
+            {a.video_url && a.status === 'booked' && <a href={a.video_url} target="_blank" rel="noreferrer" style={{ fontWeight: 700 }}>▶ Join video consult</a>}
+          </span>
+          <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className={`pill ${a.status === 'completed' ? 'pill-ok' : a.status === 'cancelled' ? 'pill-open' : 'pill-info'}`}>{a.status}</span>
-            {a.status === 'booked' && <button onClick={() => setStatus(a.id, 'cancelled')}>Cancel</button>}
+            {a.status === 'booked' && (
+              <span style={{ display: 'flex', gap: 4 }}>
+                <input placeholder="Cancel reason" value={cancelReason[a.id] || ''} onChange={(e) => setCancelReason({ ...cancelReason, [a.id]: e.target.value })} style={{ padding: 4, fontSize: 12, width: 110 }} />
+                <button onClick={() => setStatus(a.id, 'cancelled')}>Cancel</button>
+              </span>
+            )}
             {role === 'doctor' && a.status === 'booked' && <button onClick={() => setStatus(a.id, 'completed')}>Complete</button>}
           </span>
         </div>

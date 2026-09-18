@@ -32,14 +32,45 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   // ---- shared: exchange a Firebase ID token for a MedRec session ----
+  const isClockSkewError = (e) => {
+    const d = e?.response?.data?.detail
+    const s = (typeof d === 'object' ? (d.message || '') : String(d || e?.message || '')).toLowerCase()
+    return s.includes('too early') || s.includes('clock') || s.includes('future') || s.includes('before it became valid')
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   const exchange = async (fbUser, role = null, extra = {}) => {
     const idToken = await fbUser.getIdToken()
+    // Reuse the SAME idToken on retry: a "too early" token becomes valid
+    // once the backend clock catches up. Minting a fresh token would push
+    // iat further into the future and make it worse.
+    const attempt = () => api.post('/api/auth/firebase', { id_token: idToken, role, ...extra })
     try {
-      const { data } = await api.post('/api/auth/firebase', { id_token: idToken, role, ...extra })
-      saveSession(data)
-      setUser(data.user)
-      setNeedsRole(false)
-      return data.user
+      try {
+        const { data } = await attempt()
+        saveSession(data)
+        setUser(data.user)
+        setNeedsRole(false)
+        return data.user
+      } catch (e) {
+        if (!isClockSkewError(e)) throw e
+        // Backend clock is 1-2s behind Google's: wait for it to catch up, retry same token.
+        await sleep(2500)
+        try {
+          const { data } = await attempt()
+          saveSession(data)
+          setUser(data.user)
+          setNeedsRole(false)
+          return data.user
+        } catch (e2) {
+          if (!isClockSkewError(e2)) throw e2
+          await sleep(4000)
+          const { data } = await attempt()
+          saveSession(data)
+          setUser(data.user)
+          setNeedsRole(false)
+          return data.user
+        }
+      }
     } catch (e) {
       if (e.response?.status === 428) {
         // First Firebase sign-in: user must pick patient/doctor
@@ -56,11 +87,11 @@ export function AuthProvider({ children }) {
     return exchange(fb)
   }
 
-  const firebaseRegister = async ({ email, password, fullName, role, specialization, hospital }) => {
+  const firebaseRegister = async ({ email, password, fullName, role, phone, specialization, hospital }) => {
     const { user: fb } = await createUserWithEmailAndPassword(auth, email, password)
     if (fullName) await updateProfile(fb, { displayName: fullName }).catch(() => {})
     setFirebaseUser(fb)
-    return exchange(fb, role, { full_name: fullName, specialization, hospital })
+    return exchange(fb, role, { full_name: fullName, phone, specialization, hospital })
   }
 
   const googleLogin = async () => {
@@ -110,17 +141,21 @@ export function AuthProvider({ children }) {
     return exchange(fb, role)
   }
 
-  // ---- local dev fallback (works without any Firebase setup) ----
-  const login = async (email, password) => {
+  // ---- local login: STEP 1 password -> STEP 2 OTP (same code, email+sms) ----
+  // identifier = email OR phone. Returns the raw response: either
+  // {otp_required: true, sent_via, ...} or (legacy) a session.
+  const login = async (identifier, password) => {
     const form = new URLSearchParams()
-    form.append('username', email)
+    form.append('username', (identifier || '').trim())
     form.append('password', password)
     const { data } = await api.post('/api/auth/login', form, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
-    saveSession(data)
-    setUser(data.user)
-    return data.user
+    if (data.access_token) {
+      saveSession(data)
+      setUser(data.user)
+    }
+    return data
   }
 
   const register = async (payload) => {
@@ -133,6 +168,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('medrec_token')
     localStorage.removeItem('medrec_user')
     localStorage.removeItem('medrec_email_for_link')
+    localStorage.removeItem('medrec_active_profile') // stale family filter must not leak into the next session
     setUser(null)
     setFirebaseUser(null)
     setNeedsRole(false)
@@ -145,22 +181,41 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  // ---- Email OTP (passwordless) + forgot password via backend ----
-  const requestOtp = async (email, purpose = 'login') => {
-    const { data } = await api.post('/api/auth/otp/request', { email, purpose })
-    return data // {sent_via, expires_in_minutes, dev_code?}
+  // ---- Email + SMS OTP (ONE code on BOTH channels) + forgot password ----
+  // identifier = email or phone; server fans the same code out to both.
+  const toContact = (identifier) => {
+    const v = (identifier || '').trim()
+    return v.includes('@') ? { email: v } : { phone: v }
   }
 
-  const verifyOtpLogin = async (email, code) => {
-    const { data } = await api.post('/api/auth/otp/verify', { email, code, purpose: 'login' })
+  const otpChannels = async () => {
+    const { data } = await api.get('/api/auth/otp/channels').catch(() => ({ data: null }))
+    return data
+  }
+
+  const requestOtp = async (identifier, purpose = 'login') => {
+    const { data } = await api.post('/api/auth/otp/request', { ...toContact(identifier), purpose })
+    return data // {sent_via: email+sms|email|sms|dev-log, channels, expires_in_minutes, dev_code?}
+  }
+
+  const verifyOtpLogin = async (identifier, code) => {
+    const { data } = await api.post('/api/auth/otp/verify', { ...toContact(identifier), code, purpose: 'login' })
     saveSession(data)
     setUser(data.user)
     return data.user
   }
 
-  const resetPasswordWithOtp = async (email, code, new_password) => {
-    const { data } = await api.post('/api/auth/reset-password', { email, code, new_password })
+  const resetPasswordWithOtp = async (identifier, code, new_password) => {
+    const { data } = await api.post('/api/auth/reset-password', { ...toContact(identifier), code, new_password })
     return data
+  }
+
+  // Human-readable "where did the code go" line for the UI.
+  const otpSentMessage = (out, identifier) => {
+    if (!out) return ''
+    if (out.dev_code) return `Dev mode (no mail/SMS server): your code is ${out.dev_code}`
+    const via = (out.sent_via || '').split('+').filter(Boolean).join(' + ')
+    return `Same code sent via ${via || 'email'} to ${identifier} — enter it below (valid ${out.expires_in_minutes} min).`
   }
 
   // Firebase-hosted password reset email (only when Firebase is configured).
@@ -228,6 +283,7 @@ export function AuthProvider({ children }) {
       sendEmailLink, isEmailLink, completeEmailLink,
       login, register, logout, refreshUser,
       requestOtp, verifyOtpLogin, resetPasswordWithOtp, firebasePasswordReset,
+      otpChannels, otpSentMessage,
       deleteAccount,
     }}>
       {children}

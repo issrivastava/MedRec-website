@@ -7,6 +7,7 @@ class RegisterIn(BaseModel):
     password: str = Field(min_length=6, max_length=128)
     full_name: str = Field(min_length=2, max_length=255)
     role: str = Field(pattern="^(patient|doctor|admin)$")
+    phone: str | None = None
     specialization: str | None = None
     license_no: str | None = None
     hospital: str | None = None
@@ -18,6 +19,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     role: str
+    phone: str | None = None
     avatar_url: str | None = None
     created_at: datetime
 
@@ -27,6 +29,7 @@ class UserOut(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
+    phone: str | None = None
 
 
 class TokenOut(BaseModel):
@@ -40,6 +43,7 @@ class FirebaseLoginIn(BaseModel):
     id_token: str
     role: str | None = Field(default=None, pattern="^(patient|doctor)$")
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
+    phone: str | None = None
     specialization: str | None = None
     license_no: str | None = None
     hospital: str | None = None
@@ -125,6 +129,8 @@ class DocumentOut(BaseModel):
     file_mimetype: str | None = None
     file_size: int | None = None
     has_summary: bool = False
+    ocr_chars: int = 0
+    has_text: bool = False
     created_at: datetime
 
     class Config:
@@ -265,6 +271,7 @@ class AppointmentIn(BaseModel):
     date: date
     start_time: str = Field(pattern=r"^\d{2}:\d{2}$")
     reason: str | None = Field(default=None, max_length=500)
+    consult_type: str = Field(default="in_person", pattern="^(in_person|video)$")
 
 
 class AppointmentOut(BaseModel):
@@ -279,6 +286,9 @@ class AppointmentOut(BaseModel):
     end_time: str
     reason: str | None = None
     status: str
+    consult_type: str = "in_person"
+    video_url: str | None = None
+    cancel_reason: str | None = None
     created_at: datetime
 
     class Config:
@@ -396,26 +406,30 @@ class SiteReviewOut(BaseModel):
 
 
 class OtpRequestIn(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = None
     purpose: str = Field(default="login", pattern="^(login|reset|register)$")
 
 
 class OtpRequestOut(BaseModel):
     ok: bool = True
-    sent_via: str = "dev-log"
+    sent_via: str = "dev-log"  # e.g. email, sms, email+sms, dev-log
+    channels: list[str] = []  # destinations tried: ["email", "sms"]
     expires_in_minutes: int = 10
-    # Only present in local dev when no SMTP server is configured.
+    # Only present in local dev when neither SMTP nor SMS is configured.
     dev_code: str | None = None
 
 
 class OtpVerifyIn(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = None
     code: str = Field(min_length=4, max_length=10)
     purpose: str = Field(default="login", pattern="^(login|reset|register)$")
 
 
 class ResetPasswordIn(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = None
     code: str = Field(min_length=4, max_length=10)
     new_password: str = Field(min_length=6, max_length=128)
 
@@ -516,3 +530,198 @@ class DocumentUpdateIn(BaseModel):
 class PrescriptionTrendOut(BaseModel):
     medicine: str
     entries: list = []  # [{date, dosage, frequency, duration, doctor, visit_id}]
+
+
+# ---- Vitals ----
+class VitalIn(BaseModel):
+    vital_type: str = Field(pattern="^(bp|sugar|weight|bmi|temp|spo2|pulse)$")
+    value: float | None = None
+    systolic: float | None = None
+    diastolic: float | None = None
+    unit: str | None = None
+    notes: str | None = None
+    measured_at: date | None = None
+    family_member_id: str | None = None
+
+
+class VitalOut(VitalIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Vaccinations ----
+class VaccinationIn(BaseModel):
+    vaccine_name: str = Field(min_length=2, max_length=255)
+    dose_no: int = Field(default=1, ge=1, le=10)
+    due_date: date | None = None
+    given_date: date | None = None
+    status: str = Field(default="due", pattern="^(due|given|missed)$")
+    provider: str | None = None
+    notes: str | None = None
+    family_member_id: str | None = None
+
+
+class VaccinationOut(VaccinationIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Sharing / consent ----
+class ShareLinkIn(BaseModel):
+    scope: str = Field(default="documents", pattern="^(documents|vitals|prescriptions|all)$")
+    document_ids: list[str] | None = None
+    expires_in_hours: int = Field(default=72, ge=1, le=24 * 30)
+    max_views: int = Field(default=0, ge=0, le=1000)
+    label: str | None = Field(default=None, max_length=255)
+
+
+class ShareLinkOut(BaseModel):
+    id: str
+    token: str
+    url_path: str | None = None
+    scope: str
+    expires_at: datetime | None = None
+    max_views: int = 0
+    views: int = 0
+    revoked: bool = False
+    label: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ConsentIn(BaseModel):
+    doctor_id: str
+    scope: str = Field(pattern="^(records|vitals|prescriptions|chat)$")
+    allowed: bool = True
+
+
+class ConsentOut(BaseModel):
+    id: str
+    patient_id: str
+    doctor_id: str
+    doctor_name: str | None = None
+    scope: str
+    allowed: bool
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Chat ----
+class MessageIn(BaseModel):
+    doctor_id: str | None = None
+    patient_id: str | None = None
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class MessageOut(BaseModel):
+    id: str
+    doctor_id: str
+    patient_id: str
+    sender_id: str
+    sender_name: str | None = None
+    body: str
+    read: bool = False
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Referrals ----
+class ReferralIn(BaseModel):
+    patient_id: str
+    to_doctor_email: str | None = None
+    to_doctor_id: str | None = None
+    reason: str = Field(min_length=3, max_length=2000)
+    note: str | None = None
+
+
+class ReferralOut(BaseModel):
+    id: str
+    from_doctor_id: str
+    from_doctor_name: str | None = None
+    to_doctor_id: str | None = None
+    to_doctor_email: str | None = None
+    patient_id: str
+    patient_name: str | None = None
+    reason: str
+    note: str | None = None
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Rx templates ----
+class RxTemplateIn(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+    content: str | None = None
+    medicines: list | None = None
+    signature_name: str | None = None
+
+
+class RxTemplateOut(RxTemplateIn):
+    id: str
+    doctor_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Second opinions ----
+class SecondOpinionIn(BaseModel):
+    target_doctor_id: str
+    document_ids: list[str] | None = None
+    question: str = Field(min_length=5, max_length=3000)
+
+
+class SecondOpinionOut(BaseModel):
+    id: str
+    patient_id: str
+    patient_name: str | None = None
+    target_doctor_id: str
+    target_doctor_name: str | None = None
+    document_ids: list | None = None
+    question: str
+    answer: str | None = None
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SecondOpinionAnswerIn(BaseModel):
+    answer: str = Field(min_length=3, max_length=5000)
+
+
+# ---- Announcements ----
+class AnnouncementIn(BaseModel):
+    title: str = Field(min_length=3, max_length=255)
+    body: str = Field(min_length=5, max_length=5000)
+    audience: str = Field(default="all", pattern="^(all|patients|doctors)$")
+
+
+class AnnouncementOut(BaseModel):
+    id: str
+    title: str
+    body: str
+    audience: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

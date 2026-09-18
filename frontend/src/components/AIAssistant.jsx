@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import api from '../api'
+import api, { AI_TIMEOUT } from '../api'
+import { VoiceReader, MicButton, speak } from './CareTools'
 
 /* Gemini-powered doubt-solver chat (local Ollama fallback — see backend).
    Keeps the last exchanges as context for follow-up questions. */
@@ -10,6 +11,7 @@ export default function AIAssistant() {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [engine, setEngine] = useState('')
+  const [useRecords, setUseRecords] = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -33,9 +35,9 @@ export default function AIAssistant() {
     setInput('')
     setBusy(true)
     try {
-      const { data } = await api.post('/api/assistant/ask', { question: q, history })
+      const { data } = await api.post('/api/assistant/ask', { question: q, history, use_records: useRecords }, { timeout: AI_TIMEOUT })
       setEngine(data.engine || '')
-      setMessages((m) => [...m, { role: 'assistant', text: data.answer }])
+      setMessages((m) => [...m, { role: 'assistant', text: data.answer + (data.used_records ? '\n\n📎 Grounded in your MedRec records.' : '') }])
     } catch (err) {
       const detail = err.response?.data?.detail || 'Could not reach the AI. Please try again.'
       setMessages((m) => [...m, { role: 'assistant', text: `⚠️ ${detail}`, error: true }])
@@ -58,6 +60,7 @@ export default function AIAssistant() {
           <div key={i} style={m.role === 'user' ? s.userRow : s.aiRow}>
             <div style={m.role === 'user' ? s.userBubble : { ...s.aiBubble, ...(m.error ? s.errBubble : {}) }}>
               <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.text}</p>
+              {m.role === 'assistant' && !m.error && <VoiceReader text={m.text} />}
             </div>
           </div>
         ))}
@@ -85,10 +88,16 @@ export default function AIAssistant() {
           style={{ flex: 1, padding: 10, fontSize: 15 }}
           maxLength={2000}
         />
+        <MicButton onText={(t) => setInput((v) => (v ? v + ' ' : '') + t)} />
         <button type="submit" disabled={busy || !input.trim()} style={s.sendBtn}>
           {busy ? '…' : 'Send →'}
         </button>
       </form>
+
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginTop: 8 }}>
+        <input type="checkbox" checked={useRecords} onChange={(e) => setUseRecords(e.target.checked)} />
+        Ground in my MedRec records (reports, vitals, prescriptions) — RAG
+      </label>
 
       <p style={{ fontSize: 12, color: '#5d6b7a', marginTop: 8 }}>
         ℹ️ AI answers are informational only — not medical advice. Always consult your doctor.

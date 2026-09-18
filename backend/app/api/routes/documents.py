@@ -31,6 +31,7 @@ def _is_video(content_type: str | None, filename: str) -> bool:
 
 
 def _doc_out(d: Document) -> dict:
+    ocr_len = len(d.ocr_text or "")
     return {
         "id": d.id, "owner_id": d.owner_id, "title": d.title, "doc_type": d.doc_type,
         "category": getattr(d, "category", None), "report_kind": getattr(d, "report_kind", None),
@@ -38,7 +39,104 @@ def _doc_out(d: Document) -> dict:
         "notes": d.notes, "family_member_id": d.family_member_id,
         "file_mimetype": d.file_mimetype, "file_size": d.file_size,
         "has_summary": d.ai_summary is not None, "created_at": d.created_at,
+        "ocr_chars": ocr_len, "has_text": ocr_len > 20,
     }
+
+
+@router.get("/ai-status", response_model=dict)
+def ai_status():
+    """What the AI summary pipeline needs: Ollama reachability + model + image-OCR binary."""
+    from app.services.ollama import (ping, tesseract_available, list_local_models,
+                                     active_model, vision_model_name)
+    ok, detail = ping()
+    vmodel = vision_model_name()
+    return {"ollama_ok": ok, "ollama_detail": detail,
+            "model": settings.OLLAMA_MODEL, "base_url": settings.OLLAMA_BASE_URL,
+            "active_model": active_model(),
+            "local_models": list_local_models(),
+            "vision_model": vmodel,
+            "vision_ready": bool(vmodel),
+            "tesseract_ok": tesseract_available(),
+            "tesseract_detail": ("installed — photo/scan text extraction works"
+                                 if tesseract_available() else
+                                 "NOT installed — photo/scan uploads will have no text and AI summaries will be limited "
+                                 "(Windows: winget install UB-Mannheim.TesseractOCR, then restart backend)")}
+
+
+@router.get("/ai-models", response_model=dict)
+def ai_models(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Pulled Ollama models — pick a different brain for summaries/understanding."""
+    from app.services.ollama import list_local_models, active_model, vision_model_name
+    models = list_local_models()
+    return {"active": active_model(), "models": models,
+            "vision_model": vision_model_name(),
+            "suggested": [m for m in ["qwen2.5:7b", "moondream", "llama3.1:8b"] if m not in models]}
+
+
+@router.post("/ai-model", response_model=dict)
+def ai_set_model(body: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Switch the model used for summaries + understanding (must already be pulled)."""
+    from app.services.ollama import set_active_model
+    name = (body.get("model") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="model required")
+    try:
+        active = set_active_model(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"active": active}
+
+
+def _vision_b64(data: bytes, filename: str, mimetype: str | None) -> str | None:
+    """Downscaled base64 image for vision models (photo or PDF first page)."""
+    try:
+        import base64
+        import io
+        from PIL import Image
+        name = (filename or "").lower()
+        mt = (mimetype or "").lower()
+        img = None
+        if mt.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff")):
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+        elif "pdf" in mt or name.endswith(".pdf"):
+            import fitz
+            doc = fitz.open(stream=data, filetype="pdf")
+            if len(doc):
+                pix = doc[0].get_pixmap(dpi=150)
+                img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+        if img is None:
+            return None
+        img.thumbnail((1568, 1568))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return None
+
+
+@router.post("/understand", response_model=dict)
+async def understand_upload(
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Pre-upload AI detection: OCR + vision + classify. No save — used to
+    prefill the upload form so the AI 'understands' before storing."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+    ocr_text = extract_text(data, file.content_type, file.filename or "")
+    from app.services.ollama import understand_document, vision_model_name
+    b64 = _vision_b64(data, file.filename or "", file.content_type)
+    try:
+        result, model, vision_used = understand_document(
+            ocr_text, {"title": title or file.filename}, b64)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"AI understanding failed: {exc}")
+    return {"ocr_chars": len(ocr_text), "ocr_preview": ocr_text[:800],
+            "understanding": result, "model_used": model, "vision_used": vision_used,
+            "vision_available": bool(vision_model_name())}
 
 
 def _can_access(db: Session, user: User, doc: Document) -> bool:
@@ -88,9 +186,11 @@ def list_docs(
         query = query.filter(Document.visit_date <= to_date)
     if q:
         like = f"%{q}%"
+        # full-text-ish search across metadata + OCR text (works on SQLite + Postgres)
         query = query.filter(
             Document.title.ilike(like) | Document.hospital.ilike(like) | Document.notes.ilike(like)
             | Document.report_kind.ilike(like) | Document.category.ilike(like)
+            | Document.doctor_name.ilike(like) | Document.ocr_text.ilike(like)
         )
     if group_by == "doctor":
         query = query.order_by(Document.doctor_name.asc().nullslast(), Document.visit_date.desc())
@@ -140,6 +240,8 @@ async def upload_doc(
         if not db.query(FamilyMember).filter_by(id=family_member_id, owner_id=user.id).first():
             raise HTTPException(status_code=400, detail="Unknown family member")
     data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes) — please choose a valid photo, PDF or video.")
     # Videos run under a larger limit (phone clips); everything else uses MAX_UPLOAD_MB.
     is_video = _is_video(file.content_type, file.filename or "")
     max_mb = settings.VIDEO_MAX_UPLOAD_MB if is_video else settings.MAX_UPLOAD_MB
@@ -284,7 +386,13 @@ def summarize(doc_id: str, language: str = "en", db: Session = Depends(get_db),
     doc = db.query(Document).filter_by(id=doc_id).first()
     if not doc or not _can_access(db, user, doc):
         raise HTTPException(status_code=404, detail="Document not found")
-    text, findings, model = summarize_document(doc.title, doc.doc_type, doc.ocr_text or "", language)
+    if (doc.file_size or 0) == 0:
+        raise HTTPException(status_code=422, detail="This file is empty (0 bytes) — delete it and re-upload a valid photo or PDF.")
+    meta = {"doctor_name": doc.doctor_name, "hospital": doc.hospital,
+            "visit_date": str(doc.visit_date) if doc.visit_date else None,
+            "category": getattr(doc, "category", None),
+            "report_kind": getattr(doc, "report_kind", None), "notes": doc.notes}
+    text, findings, model = summarize_document(doc.title, doc.doc_type, doc.ocr_text or "", language, meta)
     # Always keep an immutable history row per generation
     db.add(AiSummaryHistory(document_id=doc.id, patient_id=doc.owner_id,
                             summary_text=text, key_findings=findings, model_used=model, language=language))
@@ -316,6 +424,80 @@ def get_summary(doc_id: str, db: Session = Depends(get_db), user: User = Depends
     return s
 
 
+@router.get("/{doc_id}/ocr-text", response_model=dict)
+def ocr_preview(doc_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Show what the AI can 'see' — first 3000 chars of extracted text."""
+    doc = db.query(Document).filter_by(id=doc_id).first()
+    if not doc or not _can_access(db, user, doc):
+        raise HTTPException(status_code=404, detail="Document not found")
+    text = doc.ocr_text or ""
+    return {"doc_id": doc.id, "chars": len(text), "preview": text[:3000],
+            "has_text": len(text) > 20}
+
+
+@router.post("/{doc_id}/understand", response_model=dict)
+def understand_stored(doc_id: str, apply: bool = False, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """AI reads a stored document: classify type + extract facts.
+
+    Pass apply=true (patient owner only) to write kind/category/doctor/
+    hospital/visit-date back to the document and re-run lab analysis."""
+    from datetime import date as _date
+    doc = db.query(Document).filter_by(id=doc_id).first()
+    if not doc or not _can_access(db, user, doc):
+        raise HTTPException(status_code=404, detail="Document not found")
+    from app.services.ollama import understand_document
+    b64 = None
+    try:
+        b64 = _vision_b64(Path(doc.file_path).read_bytes(), doc.title, doc.file_mimetype)
+    except Exception:
+        pass
+    try:
+        result, model, vision_used = understand_document(
+            doc.ocr_text or "", {"title": doc.title}, b64)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"AI understanding failed: {exc}")
+    applied: list[str] = []
+    if apply:
+        if doc.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Only the owner can apply AI detection")
+        from app.services.report_kinds import valid_category as _vc, valid_kind as _vk
+        if result.get("report_kind") and _vk(result["report_kind"]):
+            doc.report_kind = result["report_kind"]
+            applied.append("report_kind")
+        if result.get("category") and _vc(result["category"]):
+            doc.category = result["category"]
+            applied.append("category")
+        if result.get("doc_type") and result["doc_type"] in ("report", "prescription", "lab", "scan", "other"):
+            doc.doc_type = result["doc_type"]
+            applied.append("doc_type")
+        for key in ("doctor_name", "hospital"):
+            if result.get(key) and not getattr(doc, key):
+                setattr(doc, key, result[key][:255])
+                applied.append(key)
+        vd = result.get("visit_date")
+        if vd and not doc.visit_date:
+            try:
+                doc.visit_date = _date.fromisoformat(str(vd)[:10])
+                applied.append("visit_date")
+            except Exception:
+                pass
+        # snapshot version + re-run lab analysis so key_values flow into trends
+        try:
+            last = db.query(DocumentVersion).filter_by(document_id=doc.id).order_by(DocumentVersion.version_no.desc()).first()
+            db.add(DocumentVersion(document_id=doc.id, version_no=(last.version_no + 1) if last else 1,
+                                   title=doc.title, notes=doc.notes, visit_date=doc.visit_date,
+                                   doctor_name=doc.doctor_name, hospital=doc.hospital, ocr_text=doc.ocr_text))
+            from app.api.routes.alerts import analyze_document
+            analyze_document(db, doc)
+        except Exception:
+            pass
+        db.commit()
+        db.refresh(doc)
+    return {"understanding": result, "model_used": model, "vision_used": vision_used,
+            "applied": applied, "document": _doc_out(doc) if applied else None}
+
+
 @router.get("/patient/overall-summary", response_model=OverallSummaryOut)
 def overall_summary(language: str = "en", db: Session = Depends(get_db),
                     user: User = Depends(get_current_user)):
@@ -332,3 +514,38 @@ def overall_summary(language: str = "en", db: Session = Depends(get_db),
     ]
     text, used, model = summarize_overall(user.full_name, payload, language)
     return OverallSummaryOut(patient_id=user.id, summary_text=text, model_used=model, documents_used=used)
+
+
+@router.post("/auto-classify", response_model=dict)
+def auto_classify(title: str = Form(""), filename: str = Form(""),
+                  notes: str | None = Form(None),
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Smart upload: guess category/report_kind/doc_type/title from filename + title.
+
+    Rule-based (instant, offline) + kind inference from report_kinds service.
+    Frontend calls this on file-select to prefill the upload form."""
+    from app.services.report_kinds import infer_kind, category_of, KIND_TO_DOC_TYPE
+    text = f"{title} {filename} {notes or ''}".lower()
+    kind = infer_kind(f"{title} {filename}")
+    category = category_of(kind) if kind else None
+    doc_type = KIND_TO_DOC_TYPE.get(kind, "report") if kind else "report"
+    # keyword overrides for common cases
+    if any(k in text for k in ("prescription", "rx", "medicines")):
+        doc_type, category = "prescription", "prescription"
+    if any(k in text for k in ("xray", "x-ray", "mri", "ct scan", "ultrasound", "scan")):
+        doc_type = "scan"
+    if any(k in text for k in ("cbc", "blood", "urine", "thyroid", "sugar", "lipid", "lft", "kft", "hba1c")):
+        doc_type = "lab"
+    suggested_title = (title or filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ")).strip()[:120]
+    # duplicate detection: same title + similar size bucket already exists
+    dupes = []
+    if suggested_title and user.role == "patient":
+        like = f"%{suggested_title[:30]}%"
+        dupes = [{"id": d.id, "title": d.title, "visit_date": d.visit_date}
+                 for d in db.query(Document).filter_by(owner_id=user.id)
+                 .filter(Document.title.ilike(like)).limit(3).all()]
+    return {"suggested_title": suggested_title or "Untitled report",
+            "suggested_kind": kind, "suggested_category": category,
+            "suggested_doc_type": doc_type,
+            "possible_duplicates": dupes,
+            "confidence": "high" if kind else "low"}

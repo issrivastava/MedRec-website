@@ -121,6 +121,7 @@ def patient_documents(patient_id: str, category: str | None = None, report_kind:
             "family_member_id": d.family_member_id,
             "file_mimetype": d.file_mimetype, "file_size": d.file_size,
             "has_summary": d.ai_summary is not None, "created_at": d.created_at,
+            "ocr_chars": len(d.ocr_text or ""), "has_text": len(d.ocr_text or "") > 20,
         }
         for d in docs
     ]
