@@ -18,9 +18,17 @@ def _out(db: Session, r: Review, mask_patient: bool = False) -> dict:
     if pat:
         # privacy: public views see first name only
         pname = pat.full_name.split(" ")[0] if mask_patient else pat.full_name
+    reply = None
+    try:
+        from app.models.tables import ReviewReply
+        rp = db.query(ReviewReply).filter_by(review_id=r.id).first()
+        reply = rp.reply if rp else None
+    except Exception:
+        pass
     return {"id": r.id, "doctor_id": r.doctor_id, "patient_id": r.patient_id,
             "doctor_name": doc.full_name if doc else None, "patient_name": pname,
-            "rating": r.rating, "comment": r.comment, "created_at": r.created_at}
+            "rating": r.rating, "comment": r.comment, "created_at": r.created_at,
+            "doctor_reply": reply}
 
 
 def _average(db: Session, doctor_id: str) -> tuple[float | None, int]:

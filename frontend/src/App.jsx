@@ -21,6 +21,11 @@ import DoctorEmergency from './pages/doctor/Emergency'
 import DoctorRisk from './pages/doctor/Risk'
 import DoctorChat from './pages/doctor/Chat'
 import DoctorCare from './pages/doctor/Care'
+import DoctorPractice from './pages/doctor/Practice'
+import DoctorEngage from './pages/doctor/Engage'
+import DoctorInsights from './pages/doctor/Insights'
+import DoctorGrowth from './pages/doctor/Growth'
+import DoctorSafety from './pages/doctor/Safety'
 import DoctorAlerts from './pages/doctor/Alerts'
 import DoctorRatings from './pages/doctor/Ratings'
 import DoctorProfilePage from './pages/doctor/DoctorProfile'
@@ -65,6 +70,11 @@ export default function App() {
                 <Route path="patients/:patientId" element={<DoctorPatientRecords />} />
                 <Route path="schedule" element={<DoctorSchedule />} />
                 <Route path="prescriptions" element={<DoctorPrescriptions />} />
+                <Route path="practice" element={<DoctorPractice />} />
+                <Route path="engage" element={<DoctorEngage />} />
+                <Route path="insights" element={<DoctorInsights />} />
+                <Route path="growth" element={<DoctorGrowth />} />
+                <Route path="safety" element={<DoctorSafety />} />
                 <Route path="emergency" element={<DoctorEmergency />} />
                 <Route path="risk" element={<DoctorRisk />} />
                 <Route path="chat" element={<DoctorChat />} />

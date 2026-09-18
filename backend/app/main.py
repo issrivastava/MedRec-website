@@ -26,6 +26,8 @@ def _ensure_columns() -> None:
         appt_cols = [c["name"] for c in insp.get_columns("appointments")] if "appointments" in tables else []
         alert_cols = [c["name"] for c in insp.get_columns("health_alerts")] if "health_alerts" in tables else []
         appt_extra = [c["name"] for c in insp.get_columns("appointments")] if "appointments" in tables else []
+        docprof_cols = [c["name"] for c in insp.get_columns("doctor_profiles")] if "doctor_profiles" in tables else []
+        visit_extra = [c["name"] for c in insp.get_columns("visit_notes")] if "visit_notes" in tables else []
         with engine.begin() as conn:
             if "avatar_path" not in user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN avatar_path VARCHAR(1024)"))
@@ -71,10 +73,33 @@ def _ensure_columns() -> None:
                 ("consult_type", "VARCHAR(20) DEFAULT 'in_person'"),
                 ("video_url", "VARCHAR(1024)"),
                 ("cancel_reason", "VARCHAR(500)"),
+                ("token_no", "INTEGER"),
+                ("checked_in", "BOOLEAN DEFAULT 0"),
+                ("checked_in_at", "DATETIME"),
+                ("fee", "FLOAT"),
+                ("payment_status", "VARCHAR(20) DEFAULT 'unpaid'"),
             ]:
                 if appt_extra and col not in appt_extra:
                     try:
                         conn.execute(text(f"ALTER TABLE appointments ADD COLUMN {col} {ddl}"))
+                    except Exception:
+                        pass
+            for col, ddl in [
+                ("education", "TEXT"), ("experience_years", "INTEGER"),
+                ("consultation_fee", "FLOAT"), ("languages", "VARCHAR(255)"),
+                ("bio", "TEXT"), ("clinic_address", "TEXT"), ("timings", "VARCHAR(500)"),
+            ]:
+                if docprof_cols and col not in docprof_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE doctor_profiles ADD COLUMN {col} {ddl}"))
+                    except Exception:
+                        pass
+            for col, ddl in [
+                ("diagnosis_code", "VARCHAR(20)"), ("diagnosis_name", "VARCHAR(255)"),
+            ]:
+                if visit_extra and col not in visit_extra:
+                    try:
+                        conn.execute(text(f"ALTER TABLE visit_notes ADD COLUMN {col} {ddl}"))
                     except Exception:
                         pass
     except Exception:

@@ -181,6 +181,10 @@ def request_otp(db: Session, email: str | None = None, phone: str | None = None,
         if _send_sms_otp(phone, code, purpose):
             sent.append("sms")
     out: dict = {"sent_via": "+".join(sent) if sent else "dev-log", "channels": channels}
+    # SECURITY: never return the code to the client unless the operator
+    # explicitly opted into local-dev echo. The code is always printed to
+    # the *server* console (not visible to users) so devs can still test
+    # without SMTP/SMS. Frontend must NEVER render dev_code.
     if not sent and settings.OTP_DEV_ECHO:
         out["dev_code"] = code
     return out

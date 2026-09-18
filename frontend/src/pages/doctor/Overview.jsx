@@ -44,9 +44,14 @@ export default function Overview() {
         <section style={s.card}>
           <h3 className="sec-head"><span className="tile t-blue">⚡</span> Quick actions</h3>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link to="/doctor/practice"><button>🏥 OPD queue</button></Link>
             <Link to="/doctor/patients"><button>🧑‍🤝‍🧑 Patient list</button></Link>
             <Link to="/doctor/prescriptions"><button>✍️ Write prescription</button></Link>
+            <Link to="/doctor/engage"><button>📣 Engage</button></Link>
+            <Link to="/doctor/insights"><button>📊 Insights & AI</button></Link>
             <Link to="/doctor/chat"><button>💬 Open chat</button></Link>
+            <Link to="/doctor/growth"><button>🌟 Growth</button></Link>
+            <Link to="/doctor/safety"><button>🛡️ Safety</button></Link>
             <Link to="/doctor/profile"><button>👤 Edit profile</button></Link>
           </div>
           <p style={{ fontSize: 13, color: '#5d6b7a' }}>

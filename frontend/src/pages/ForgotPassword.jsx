@@ -71,8 +71,8 @@ export default function ForgotPassword() {
 
       {step === 2 && (
         <form onSubmit={doReset} style={s.form}>
-          <p style={s.note}>Same code sent to your <b>email and phone</b> for <b>{identifier}</b>. {sent?.dev_code ? `Dev code: ${sent.dev_code}` : ''}</p>
-          {sent?.dev_code && <p style={s.hint}>No mail/SMS server is set up, so the code shows here. To send for real: set MAIL_* and SMS_WEBHOOK_URL in backend/.env (see .env.example) and restart the backend — or connect Firebase and use the Firebase reset email option.</p>}
+          <p style={s.note}>Same code sent to your <b>email and phone</b> for <b>{identifier}</b>.</p>
+          {sent?.sent_via === 'dev-log' && <p style={s.hint}>No mail/SMS server is set up, so no code was actually delivered. To send for real: set MAIL_* and SMS_WEBHOOK_URL in backend/.env (see .env.example) and restart the backend — or connect Firebase and use the Firebase reset email option. Then press Resend code.</p>}
           <input placeholder="6-digit code" value={code} onChange={(e) => setCode(e.target.value)} required style={s.input} inputMode="numeric" maxLength={6} />          <input placeholder="New password (min 6)" type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} required style={s.input} />
           <input placeholder="Confirm new password" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} required style={s.input} />
           {err && <p style={{ color: 'red' }}>{err}</p>}

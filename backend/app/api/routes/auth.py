@@ -133,12 +133,15 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
         out = otp_service.request_otp(db, email=user.email, phone=user.phone, purpose="login")
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
+    # SECURITY: dev_code is only ever sent when the operator explicitly set
+    # OTP_DEV_ECHO=True for local dev. Otherwise the client gets no code.
+    dev_code = out.get("dev_code") if settings.OTP_DEV_ECHO else None
     return JSONResponse(status_code=202, content={
         "otp_required": True,
         "identifier": user.email,
         "sent_via": out["sent_via"], "channels": out.get("channels", []),
         "expires_in_minutes": settings.OTP_EXPIRE_MINUTES,
-        "dev_code": out.get("dev_code"),
+        "dev_code": dev_code,
     })
 
 
@@ -338,9 +341,11 @@ def otp_request(data: OtpRequestIn, db: Session = Depends(get_db)):
         out = otp_service.request_otp(db, email=email, phone=phone, purpose=data.purpose)
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
+    # SECURITY: only echo the code when the operator explicitly enabled local-dev echo.
+    dev_code = out.get("dev_code") if settings.OTP_DEV_ECHO else None
     return OtpRequestOut(sent_via=out["sent_via"], channels=out.get("channels", []),
                          expires_in_minutes=settings.OTP_EXPIRE_MINUTES,
-                         dev_code=out.get("dev_code"))
+                         dev_code=dev_code)
 
 
 def _verify_target(data_email, data_phone) -> str:

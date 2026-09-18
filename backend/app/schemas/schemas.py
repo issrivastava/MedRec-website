@@ -88,6 +88,13 @@ class DoctorProfileIn(BaseModel):
     license_no: str | None = None
     hospital: str | None = None
     phone: str | None = None
+    education: str | None = None
+    experience_years: int | None = None
+    consultation_fee: float | None = None
+    languages: str | None = None
+    bio: str | None = None
+    clinic_address: str | None = None
+    timings: str | None = None
 
 
 class DoctorProfileOut(DoctorProfileIn):
@@ -228,6 +235,8 @@ class VisitNoteIn(BaseModel):
     medicines: list[MedicineIn] | None = None
     visit_date: date | None = None
     follow_up_date: date | None = None
+    diagnosis_code: str | None = Field(default=None, max_length=20)
+    diagnosis_name: str | None = Field(default=None, max_length=255)
 
 
 class VisitNoteOut(BaseModel):
@@ -242,6 +251,8 @@ class VisitNoteOut(BaseModel):
     medicines: list | None = None
     visit_date: date | None = None
     follow_up_date: date | None = None
+    diagnosis_code: str | None = None
+    diagnosis_name: str | None = None
     created_at: datetime
 
     class Config:
@@ -289,6 +300,10 @@ class AppointmentOut(BaseModel):
     consult_type: str = "in_person"
     video_url: str | None = None
     cancel_reason: str | None = None
+    token_no: int | None = None
+    checked_in: bool = False
+    fee: float | None = None
+    payment_status: str = "unpaid"
     created_at: datetime
 
     class Config:
@@ -725,3 +740,164 @@ class AnnouncementOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---- Doctor practice suite ----
+class LabOrderIn(BaseModel):
+    patient_id: str
+    test_name: str = Field(min_length=2, max_length=255)
+    instructions: str | None = None
+    due_date: date | None = None
+
+
+class LabOrderOut(BaseModel):
+    id: str
+    doctor_id: str
+    patient_id: str
+    patient_name: str | None = None
+    test_name: str
+    instructions: str | None = None
+    status: str
+    due_date: date | None = None
+    result_doc_id: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CarePlanIn(BaseModel):
+    patient_id: str
+    title: str = Field(min_length=2, max_length=255)
+    diagnosis_code: str | None = Field(default=None, max_length=20)
+    diagnosis_name: str | None = Field(default=None, max_length=255)
+    tasks: list | None = None
+    status: str = Field(default="active", pattern="^(active|completed|paused)$")
+    start_date: date | None = None
+    end_date: date | None = None
+
+
+class CarePlanOut(CarePlanIn):
+    id: str
+    doctor_id: str
+    patient_name: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CertificateIn(BaseModel):
+    patient_id: str
+    cert_type: str = Field(default="fitness", pattern="^(fitness|sick|leave|other)$")
+    title: str | None = Field(default=None, max_length=255)
+    content: str = Field(min_length=5, max_length=5000)
+    valid_from: date | None = None
+    valid_until: date | None = None
+
+
+class CertificateOut(CertificateIn):
+    id: str
+    doctor_id: str
+    patient_name: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LeaveIn(BaseModel):
+    date: date
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class LeaveOut(BaseModel):
+    id: str
+    doctor_id: str
+    date: date
+    reason: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BroadcastIn(BaseModel):
+    title: str = Field(min_length=3, max_length=255)
+    body: str = Field(min_length=5, max_length=2000)
+
+
+class BroadcastOut(BaseModel):
+    id: str
+    doctor_id: str
+    title: str
+    body: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PreVisitIn(BaseModel):
+    appointment_id: str
+    questions: list[str] | None = None
+    answers: list | None = None
+
+
+class PreVisitOut(BaseModel):
+    id: str
+    appointment_id: str
+    doctor_id: str
+    patient_id: str
+    questions: list | None = None
+    answers: list | None = None
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ReviewReplyIn(BaseModel):
+    review_id: str
+    reply: str = Field(min_length=2, max_length=2000)
+
+
+class ReviewReplyOut(BaseModel):
+    id: str
+    review_id: str
+    doctor_id: str
+    reply: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditOut(BaseModel):
+    id: str
+    actor_id: str
+    actor_name: str | None = None
+    action: str
+    patient_id: str | None = None
+    patient_name: str | None = None
+    detail: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CheckinIn(BaseModel):
+    checked_in: bool = True
+    fee: float | None = None
+    payment_status: str | None = Field(default=None, pattern="^(unpaid|paid|waived)$")
+
+
+class SoapIn(BaseModel):
+    notes: str = Field(min_length=5, max_length=5000)
+    patient_id: str | None = None
+
+
+class InteractionIn(BaseModel):
+    medicines: list[str] = Field(min_length=1, max_length=30)

@@ -211,9 +211,14 @@ export function AuthProvider({ children }) {
   }
 
   // Human-readable "where did the code go" line for the UI.
+  // SECURITY: NEVER render out.dev_code — the OTP must only travel via
+  // email/SMS. If the server couldn't deliver (sent_via === 'dev-log'),
+  // tell the user to configure mail instead of showing the code.
   const otpSentMessage = (out, identifier) => {
     if (!out) return ''
-    if (out.dev_code) return `Dev mode (no mail/SMS server): your code is ${out.dev_code}`
+    if (out.sent_via === 'dev-log' || out.dev_code) {
+      return `Email/SMS delivery is not configured on the server, so no code could be sent to ${identifier}. Ask the admin to set MAIL_* (and SMS_WEBHOOK_URL) in backend/.env and restart the backend — then request a fresh code.`
+    }
     const via = (out.sent_via || '').split('+').filter(Boolean).join(' + ')
     return `Same code sent via ${via || 'email'} to ${identifier} — enter it below (valid ${out.expires_in_minutes} min).`
   }

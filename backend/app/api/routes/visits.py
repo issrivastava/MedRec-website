@@ -15,6 +15,8 @@ def _out(db: Session, v: VisitNote) -> dict:
     d = {c: getattr(v, c) for c in ("id", "patient_id", "doctor_id", "note_type", "title", "content",
                                     "medicines", "visit_date", "follow_up_date", "created_at")}
     d["family_member_id"] = getattr(v, "family_member_id", None)
+    d["diagnosis_code"] = getattr(v, "diagnosis_code", None)
+    d["diagnosis_name"] = getattr(v, "diagnosis_name", None)
     d["doctor_name"] = doc.full_name if doc else None
     return d
 
@@ -33,6 +35,7 @@ def create_note(data: VisitNoteIn, db: Session = Depends(get_db), user: User = D
         medicines=[m.model_dump() for m in data.medicines] if data.medicines else None,
         visit_date=data.visit_date, follow_up_date=data.follow_up_date,
         family_member_id=data.family_member_id,
+        diagnosis_code=data.diagnosis_code, diagnosis_name=data.diagnosis_name,
     )
     db.add(v)
     db.commit()

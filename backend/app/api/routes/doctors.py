@@ -98,6 +98,17 @@ def _notify_view(db: Session, doctor: User, patient_id: str) -> None:
            f"Dr. {doctor.full_name} viewed your records",
            "Your assigned doctor opened your profile or reports.", link="/patient",
            ref=f"doctor-view:{doctor.id}:{patient_id}:{_date.today().isoformat()}")
+    # safety trail (best-effort, never blocks the view)
+    try:
+        from app.models.tables import AuditLog
+        db.add(AuditLog(actor_id=doctor.id, action="view_records",
+                        patient_id=patient_id, detail="opened profile/records"))
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 @router.get("/patients/{patient_id}/documents")

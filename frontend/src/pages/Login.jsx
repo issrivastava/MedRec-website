@@ -221,8 +221,8 @@ export default function Login() {
             </form>
           ) : (
             <form onSubmit={submitOtp} style={s.form}>
-              <p style={s.note}>Same code was sent to your <b>email and phone</b> for <b>{email}</b>. {otpSent.dev_code ? `Dev code: ${otpSent.dev_code}` : ''}</p>
-              {otpSent.dev_code && <p style={s.hint}>No mail/SMS server is set up, so the code shows here. To send for real: set MAIL_* and SMS_WEBHOOK_URL in backend/.env (see .env.example) and restart the backend — or connect Firebase and use the mailed sign-in link.</p>}
+              <p style={s.note}>Same code was sent to your <b>email and phone</b> for <b>{email}</b>.</p>
+              {otpSent?.sent_via === 'dev-log' && <p style={s.hint}>No mail/SMS server is set up, so no code was actually delivered. To send for real: set MAIL_* and SMS_WEBHOOK_URL in backend/.env (see .env.example) and restart the backend — or connect Firebase and use the mailed sign-in link. Then press Resend code.</p>}
               <input placeholder="6-digit code" value={otp} onChange={(e) => setOtp(e.target.value)} required style={s.input} inputMode="numeric" maxLength={6} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
               {info && <p style={{ color: 'green' }}>{info}</p>}

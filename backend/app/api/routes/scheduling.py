@@ -33,6 +33,10 @@ def _appt_out(db: Session, a: Appointment) -> dict:
             "status": a.status, "consult_type": getattr(a, "consult_type", "in_person") or "in_person",
             "video_url": getattr(a, "video_url", None),
             "cancel_reason": getattr(a, "cancel_reason", None),
+            "token_no": getattr(a, "token_no", None),
+            "checked_in": bool(getattr(a, "checked_in", False)),
+            "fee": getattr(a, "fee", None),
+            "payment_status": getattr(a, "payment_status", "unpaid") or "unpaid",
             "created_at": a.created_at}
 
 
@@ -102,6 +106,21 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
         doctor_id=data.doctor_id, date=data.date, start_time=start, status="booked").first()
     if clash:
         raise HTTPException(status_code=400, detail="Slot already booked")
+    # block booking on doctor leave days
+    try:
+        from app.models.tables import DoctorLeave
+        if db.query(DoctorLeave).filter_by(doctor_id=data.doctor_id, date=data.date).first():
+            raise HTTPException(status_code=400, detail="Doctor is on leave that day")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    # next token number for the day
+    try:
+        day_count = db.query(Appointment).filter_by(doctor_id=data.doctor_id, date=data.date).count()
+        token_no = (day_count or 0) + 1
+    except Exception:
+        token_no = None
     a = Appointment(doctor_id=data.doctor_id, patient_id=user.id, date=data.date,
                     start_time=start, end_time=slot.end_time, reason=data.reason,
                     family_member_id=data.family_member_id,
@@ -110,6 +129,8 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
     db.commit()
     db.refresh(a)
     try:
+        if token_no:
+            a.token_no = token_no
         _ensure_video(a)
         db.commit()
         db.refresh(a)
@@ -140,7 +161,7 @@ def my_appointments(db: Session = Depends(get_db), user: User = Depends(get_curr
 def set_status(appt_id: str, status: str, cancel_reason: str | None = None,
                consult_type: str | None = None,
                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if status not in ("booked", "cancelled", "completed"):
+    if status not in ("booked", "cancelled", "completed", "no_show"):
         raise HTTPException(status_code=400, detail="Invalid status")
     a = db.query(Appointment).filter_by(id=appt_id).first()
     if not a:
