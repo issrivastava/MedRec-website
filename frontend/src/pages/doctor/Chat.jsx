@@ -3,13 +3,13 @@ import ChatBox from '../../components/ChatBox'
 import { useDoctor } from './DoctorContext'
 
 export default function Chat() {
-  const { selectedId, selectedPatient } = useDoctor()
+  const { selectedId, selectedPatient, patients } = useDoctor()
 
   return (
     <section style={s.card} className="rise">
       <h3 className="sec-head"><span className="tile t-teal">💬</span> Patient Chat{selectedPatient ? ` — ${selectedPatient.patient_name}` : ''}</h3>
       {!selectedId && <p style={{ color: '#64748b' }}>Select a patient in <Link to="/doctor/patients">Patients</Link>, or pick from inbox below.</p>}
-      <ChatBox role="doctor" patientId={selectedId} />
+      <ChatBox role="doctor" patientId={selectedId} patients={patients} />
     </section>
   )
 }

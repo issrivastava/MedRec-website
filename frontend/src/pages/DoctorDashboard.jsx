@@ -9,6 +9,7 @@ import { kindsForCategory, kindLabel, kindIcon } from '../reportKinds'
 import { calcAge, shortId } from '../utils'
 import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
+import { SPECIALIZATIONS } from '../specializations'
 import { LabRanges } from '../components/Alerts'
 import { MyReviews } from '../components/Reviews'
 import { EmergencyInbox } from '../components/EmergencyButton'
@@ -164,7 +165,10 @@ export default function DoctorDashboard() {
               <h3 className="sec-head"><span className="tile t-orange">👤</span> My Profile</h3>
               {profile && (
                 <div style={s.grid}>
-                  <input placeholder="Specialization" value={profile.specialization || ''} onChange={(e) => setProfile({ ...profile, specialization: e.target.value })} style={s.input} />
+                  <select value={profile.specialization || ''} onChange={(e) => setProfile({ ...profile, specialization: e.target.value })} style={{ ...s.input, width: '100%', maxWidth: '100%' }} aria-label="Specialization">
+                    <option value="">Select specialization…</option>
+                    {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+                  </select>
                   <input placeholder="License No" value={profile.license_no || ''} onChange={(e) => setProfile({ ...profile, license_no: e.target.value })} style={s.input} />
                   <input placeholder="Hospital" value={profile.hospital || ''} onChange={(e) => setProfile({ ...profile, hospital: e.target.value })} style={s.input} />
                   <input placeholder="Phone" value={profile.phone || ''} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} style={s.input} />
@@ -236,7 +240,7 @@ export default function DoctorDashboard() {
                   <p style={{ margin: 0 }}>Email: {info.user.email}<br />🩸 {info.profile?.blood_group || '—'} | 🎂 {info.profile?.dob || '—'}</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <span className="pill pill-info" title={info.user.id}>🪪 Patient ID: {shortId(info.user.id)}</span>
+                  <span className="pill pill-info" title={info.user.id}>🪪 Patient ID: {info.user.health_id || shortId(info.user.id)}</span>
                   <span className="pill pill-ok">🎂 Age: {(() => { const a = calcAge(info.profile?.dob); return a != null ? `${a} yrs` : '—' })()}</span>
                   {info.profile?.gender && <span className="pill pill-ok">👤 {info.profile.gender}</span>}
                 </div>
@@ -347,7 +351,7 @@ export default function DoctorDashboard() {
         <section style={s.card} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">💬</span> Patient Chat</h3>
           {!selected && <p style={{ color: '#64748b' }}>Select a patient in Patients tab, or pick from inbox.</p>}
-          <ChatBox role="doctor" patientId={selected} />
+          <ChatBox role="doctor" patientId={selected} patients={patients} />
         </section>
       )}
       {tab === 'care' && (

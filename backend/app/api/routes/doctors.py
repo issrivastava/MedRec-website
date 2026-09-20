@@ -44,7 +44,18 @@ def update_my_profile(
     data: DoctorProfileIn, db: Session = Depends(get_db), user: User = Depends(require_doctor)
 ):
     prof = _get_or_create(db, user)
-    for k, v in data.model_dump(exclude_unset=True).items():
+    patch = data.model_dump(exclude_unset=True)
+    # license_no is globally unique — give a 400 instead of a 500 IntegrityError.
+    if "license_no" in patch and patch["license_no"]:
+        clash = (
+            db.query(DoctorProfile)
+            .filter(DoctorProfile.license_no == patch["license_no"],
+                    DoctorProfile.user_id != user.id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(status_code=400, detail="That license number is already used by another doctor")
+    for k, v in patch.items():
         setattr(prof, k, v)
     db.commit()
     db.refresh(prof)
@@ -136,3 +147,35 @@ def patient_documents(patient_id: str, category: str | None = None, report_kind:
         }
         for d in docs
     ]
+
+
+@router.get("/patients/{patient_id}/overall-summary")
+def patient_overall_summary(patient_id: str, language: str = "en",
+                            db: Session = Depends(get_db),
+                            user: User = Depends(require_doctor)):
+    """AI overall health summary for an assigned patient (read-only).
+
+    Uses the same Ollama/Gemini engine as per-document summaries. Lets doctors
+    'read data using AI' without opening every report."""
+    from app.services.ollama import summarize_overall
+    if not _is_assigned(db, user.id, patient_id):
+        raise HTTPException(status_code=403, detail="Patient not assigned to you")
+    p = db.query(User).filter(User.id == patient_id, User.role == "patient").first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    _notify_view(db, user, patient_id)
+    docs = (
+        db.query(Document).filter(Document.owner_id == patient_id)
+        .order_by(Document.visit_date.desc().nullslast()).limit(8).all()
+    )
+    payload = [
+        {"title": d.title, "doc_type": d.doc_type,
+         "category": getattr(d, "category", None),
+         "report_kind": getattr(d, "report_kind", None),
+         "visit_date": str(d.visit_date) if d.visit_date else None,
+         "ocr_text": d.ocr_text or ""}
+        for d in docs
+    ]
+    text, used, model = summarize_overall(p.full_name, payload, language)
+    return {"patient_id": patient_id, "summary_text": text,
+            "model_used": model, "documents_used": used, "language": language}

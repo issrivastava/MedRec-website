@@ -87,29 +87,39 @@ def doctor_slots(doctor_id: str, db: Session = Depends(get_db), user: User = Dep
 # ---- appointments ----
 @router.post("/appointments", response_model=AppointmentOut, status_code=201)
 def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role != "patient":
-        raise HTTPException(status_code=403, detail="Patients only")
-    if not is_assigned(db, data.doctor_id, user.id):
-        raise HTTPException(status_code=403, detail="Doctor not assigned to you")
+    if user.role == "patient":
+        if not data.doctor_id:
+            raise HTTPException(status_code=400, detail="doctor_id required")
+        if not is_assigned(db, data.doctor_id, user.id):
+            raise HTTPException(status_code=403, detail="Doctor not assigned to you")
+        doctor_id, patient_id = data.doctor_id, user.id
+    elif user.role == "doctor":
+        if not data.patient_id:
+            raise HTTPException(status_code=400, detail="patient_id required: pick the patient")
+        if not is_assigned(db, user.id, data.patient_id):
+            raise HTTPException(status_code=403, detail="Patient not assigned to you")
+        doctor_id, patient_id = user.id, data.patient_id
+    else:
+        raise HTTPException(status_code=403, detail="Patients and doctors only")
     if data.date < date.today():
         raise HTTPException(status_code=400, detail="Cannot book in the past")
     if data.family_member_id:
         from app.models.tables import FamilyMember
-        if not db.query(FamilyMember).filter_by(id=data.family_member_id, owner_id=user.id).first():
+        if not db.query(FamilyMember).filter_by(id=data.family_member_id, owner_id=patient_id).first():
             raise HTTPException(status_code=400, detail="Unknown family member")
     start = _parse(data.start_time)
     slot = db.query(AvailabilitySlot).filter_by(
-        doctor_id=data.doctor_id, weekday=data.date.weekday(), start_time=start).first()
+        doctor_id=doctor_id, weekday=data.date.weekday(), start_time=start).first()
     if not slot:
         raise HTTPException(status_code=400, detail="Doctor not available at that time")
     clash = db.query(Appointment).filter_by(
-        doctor_id=data.doctor_id, date=data.date, start_time=start, status="booked").first()
+        doctor_id=doctor_id, date=data.date, start_time=start, status="booked").first()
     if clash:
         raise HTTPException(status_code=400, detail="Slot already booked")
     # block booking on doctor leave days
     try:
         from app.models.tables import DoctorLeave
-        if db.query(DoctorLeave).filter_by(doctor_id=data.doctor_id, date=data.date).first():
+        if db.query(DoctorLeave).filter_by(doctor_id=doctor_id, date=data.date).first():
             raise HTTPException(status_code=400, detail="Doctor is on leave that day")
     except HTTPException:
         raise
@@ -117,11 +127,11 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
         pass
     # next token number for the day
     try:
-        day_count = db.query(Appointment).filter_by(doctor_id=data.doctor_id, date=data.date).count()
+        day_count = db.query(Appointment).filter_by(doctor_id=doctor_id, date=data.date).count()
         token_no = (day_count or 0) + 1
     except Exception:
         token_no = None
-    a = Appointment(doctor_id=data.doctor_id, patient_id=user.id, date=data.date,
+    a = Appointment(doctor_id=doctor_id, patient_id=patient_id, date=data.date,
                     start_time=start, end_time=slot.end_time, reason=data.reason,
                     family_member_id=data.family_member_id,
                     consult_type=getattr(data, "consult_type", "in_person") or "in_person")
@@ -136,11 +146,12 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
         db.refresh(a)
     except Exception:
         pass
-    doc = db.query(User).filter_by(id=data.doctor_id).first()
-    notify(db, data.doctor_id, "appointment",
-           f"New appointment: {user.full_name} on {data.date} {data.start_time}",
+    doc = db.query(User).filter_by(id=doctor_id).first()
+    pat = db.query(User).filter_by(id=patient_id).first()
+    notify(db, doctor_id, "appointment",
+           f"New appointment: {pat.full_name if pat else patient_id} on {data.date} {data.start_time}",
            data.reason, link="/doctor")
-    notify(db, user.id, "appointment",
+    notify(db, patient_id, "appointment",
            f"Appointment booked with Dr. {doc.full_name if doc else ''} on {data.date} {data.start_time}",
            data.reason, link="/patient")
     return _appt_out(db, a)

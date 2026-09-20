@@ -49,6 +49,7 @@ export default function Navbar() {
                   ? <img src={pic} alt="profile" style={styles.avatar} />
                   : <span style={styles.avatarFallback}>{user.full_name.charAt(0).toUpperCase()}</span>}
                 <span>{user.full_name}</span>
+                <span className="pill pill-info" style={{ fontSize: 11 }}>{user.role}</span>
               </Link>
               <button onClick={() => { logout(); nav('/') }} style={styles.logoutBtn}>Logout</button>
             </>

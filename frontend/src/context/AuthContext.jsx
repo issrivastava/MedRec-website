@@ -13,7 +13,7 @@ import {
   isSignInWithEmailLink,
   signInWithEmailLink,
 } from 'firebase/auth'
-import api from '../api'
+import api, { AI_TIMEOUT } from '../api'
 import { auth, googleProvider, isFirebaseConfigured } from '../firebase'
 
 const AuthContext = createContext(null)
@@ -46,7 +46,10 @@ export function AuthProvider({ children }) {
     // Reuse the SAME idToken on retry: a "too early" token becomes valid
     // once the backend clock catches up. Minting a fresh token would push
     // iat further into the future and make it worse.
-    const attempt = () => api.post('/api/auth/firebase', { id_token: idToken, role, ...extra })
+    // Long timeout: first Firebase verification downloads Google certs and
+    // can take 30s+ on slow networks — the 30s default aborts it as a
+    // misleading "Network Error".
+    const attempt = () => api.post('/api/auth/firebase', { id_token: idToken, role, ...extra }, { timeout: AI_TIMEOUT })
     try {
       try {
         const { data } = await attempt()
@@ -86,10 +89,10 @@ export function AuthProvider({ children }) {
   // ---- Firebase login options ----
   // role is passed through so FIRST-TIME doctors are created as doctors
   // immediately (no 428 bounce that defaults to patient).
-  const firebaseLogin = async (email, password, role = null) => {
+  const firebaseLogin = async (email, password, role = null, specialization = null) => {
     const { user: fb } = await signInWithEmailAndPassword(auth, email, password)
     setFirebaseUser(fb)
-    return exchange(fb, role)
+    return exchange(fb, role, specialization ? { specialization } : {})
   }
 
   const firebaseRegister = async ({ email, password, fullName, role, phone, specialization, hospital }) => {
@@ -99,11 +102,11 @@ export function AuthProvider({ children }) {
     return exchange(fb, role, { full_name: fullName, phone, specialization, hospital })
   }
 
-  const googleLogin = async (role = null) => {
+  const googleLogin = async (role = null, specialization = null) => {
     try {
       const { user: fb } = await signInWithPopup(auth, googleProvider)
       setFirebaseUser(fb)
-      return exchange(fb, role)
+      return exchange(fb, role, specialization ? { specialization } : {})
     } catch (e) {
       // Popup blocked / unsupported (e.g. some mobile browsers): fall back to
       // full-page redirect — Firebase returns to this app afterwards.
@@ -136,14 +139,17 @@ export function AuthProvider({ children }) {
     // Clean the one-time code out of the address bar
     try { window.history.replaceState({}, '', '/login') } catch { /* ignore */ }
     setFirebaseUser(fb)
-    return exchange(fb)
+    // Pass the remembered role so first-time doctors aren't created as patients.
+    let lastRole = null
+    try { lastRole = localStorage.getItem('medrec_last_role') } catch { /* ignore */ }
+    return exchange(fb, lastRole === 'doctor' ? 'doctor' : lastRole === 'patient' ? 'patient' : null)
   }
 
   // Called from the role picker shown on first Firebase sign-in
-  const completeRole = async (role) => {
+  const completeRole = async (role, specialization = null) => {
     const fb = firebaseUser || auth?.currentUser
     if (!fb) throw new Error('Firebase session expired — please sign in again')
-    return exchange(fb, role)
+    return exchange(fb, role, specialization ? { specialization } : {})
   }
 
   // ---- local login: STEP 1 password -> STEP 2 OTP (same code, email+sms) ----
@@ -190,6 +196,7 @@ export function AuthProvider({ children }) {
   // identifier = email or phone; server fans the same code out to both.
   const toContact = (identifier) => {
     const v = (identifier || '').trim()
+    if (/^AH-/i.test(v)) return { health_id: v.toUpperCase().replace(/\s+/g, '') }
     return v.includes('@') ? { email: v } : { phone: v }
   }
 

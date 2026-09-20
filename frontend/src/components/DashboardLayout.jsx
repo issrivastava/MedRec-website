@@ -3,15 +3,16 @@ import { useAuth } from '../context/AuthContext'
 import { avatarSrc } from '../api'
 
 /* Full-width app shell: dark sidebar sections on the left, content fills the screen.
-   items: [{ key, label, icon, badge?, to? }] — `to` renders a route link, else a tab button. */
-export default function DashboardLayout({ title, subtitle, items, active, onSelect, children }) {
+   items: [{ key, label, icon, badge?, to? }] — `to` renders a route link, else a tab button.
+   sideTitle/tone let patient vs doctor shells look unmistakably different. */
+export default function DashboardLayout({ title, subtitle, items, active, onSelect, children, sideTitle = 'MEDREC MENU', tone = '' }) {
   const { user, logout } = useAuth()
   const pic = avatarSrc(user)
 
   return (
-    <div className="dash">
+    <div className={`dash${tone ? ` ${tone}` : ''}`}>
       <aside className="dash-side">
-        <div className="dash-side-title">MEDREC MENU</div>
+        <div className="dash-side-title">{sideTitle}</div>
         {items.map((it) =>
           it.to ? (
             <Link key={it.key} to={it.to} className="dash-nav-item">

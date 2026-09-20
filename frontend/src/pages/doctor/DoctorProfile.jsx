@@ -2,6 +2,7 @@ import { useState } from 'react'
 import api from '../../api'
 import { useAuth } from '../../context/AuthContext'
 import { useDoctor } from './DoctorContext'
+import { SPECIALIZATIONS } from '../../specializations'
 
 export default function DoctorProfile() {
   const { user, refreshUser } = useAuth()
@@ -12,7 +13,23 @@ export default function DoctorProfile() {
   const save = async () => {
     setMsg(''); setErr('')
     try {
-      const { data } = await api.put('/api/doctors/me', profile)
+      const payload = {
+        ...profile,
+        // Backend expects numbers for these — coerce empty strings to null.
+        experience_years: profile.experience_years === '' || profile.experience_years == null
+          ? null : Number(profile.experience_years),
+        consultation_fee: profile.consultation_fee === '' || profile.consultation_fee == null
+          ? null : Number(profile.consultation_fee),
+      }
+      if (payload.experience_years != null && Number.isNaN(payload.experience_years)) {
+        setErr('Experience (years) must be a number')
+        return
+      }
+      if (payload.consultation_fee != null && Number.isNaN(payload.consultation_fee)) {
+        setErr('Consultation fee must be a number')
+        return
+      }
+      const { data } = await api.put('/api/doctors/me', payload)
       setProfile(data)
       await refreshUser().catch(() => {})
       setMsg('Profile saved ✓')
@@ -32,11 +49,22 @@ export default function DoctorProfile() {
           Patients see your name, specialization and hospital when they link you or find you.
         </p>
         <div style={s.grid}>
-          <label>Specialization<input placeholder="e.g. Cardiology" value={profile.specialization || ''} onChange={(e) => setProfile({ ...profile, specialization: e.target.value })} style={s.input} /></label>
+          <label>Specialization<select value={profile.specialization || ''} onChange={(e) => setProfile({ ...profile, specialization: e.target.value })} style={s.input}>
+            <option value="">Select specialization…</option>
+            {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+            {!SPECIALIZATIONS.includes(profile.specialization) && profile.specialization ? <option value={profile.specialization}>{profile.specialization} (current)</option> : null}
+          </select></label>
           <label>License No<input placeholder="License No" value={profile.license_no || ''} onChange={(e) => setProfile({ ...profile, license_no: e.target.value })} style={s.input} /></label>
           <label>Hospital<input placeholder="Hospital" value={profile.hospital || ''} onChange={(e) => setProfile({ ...profile, hospital: e.target.value })} style={s.input} /></label>
           <label>Phone<input placeholder="Phone" value={profile.phone || ''} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} style={s.input} /></label>
+          <label>Education (degrees)<input placeholder="e.g. MBBS, MD (Cardiology)" value={profile.education || ''} onChange={(e) => setProfile({ ...profile, education: e.target.value })} style={s.input} /></label>
+          <label>Experience (years)<input placeholder="e.g. 10" type="number" min="0" value={profile.experience_years ?? ''} onChange={(e) => setProfile({ ...profile, experience_years: e.target.value })} style={s.input} /></label>
+          <label>Consultation fee (₹)<input placeholder="e.g. 500" type="number" min="0" value={profile.consultation_fee ?? ''} onChange={(e) => setProfile({ ...profile, consultation_fee: e.target.value })} style={s.input} /></label>
+          <label>Languages<input placeholder="e.g. English, Hindi" value={profile.languages || ''} onChange={(e) => setProfile({ ...profile, languages: e.target.value })} style={s.input} /></label>
+          <label>Clinic address<input placeholder="Clinic address" value={profile.clinic_address || ''} onChange={(e) => setProfile({ ...profile, clinic_address: e.target.value })} style={s.input} /></label>
+          <label>Timings<input placeholder="e.g. Mon–Sat 10am–2pm" value={profile.timings || ''} onChange={(e) => setProfile({ ...profile, timings: e.target.value })} style={s.input} /></label>
         </div>
+        <label style={{ display: 'block', marginBottom: 8 }}>Bio / about<textarea placeholder="Short intro patients see on Find Doctors" value={profile.bio || ''} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} rows={3} style={{ ...s.input, width: '100%' }} /></label>
         {msg && <p style={{ color: 'green' }}>{msg}</p>}
         {err && <p style={{ color: 'red' }}>{err}</p>}
         <button onClick={save} style={s.primaryBtn}>Save profile</button>

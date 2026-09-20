@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './context/AuthContext'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { ProfileProvider } from './context/ProfileContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -16,6 +16,7 @@ import DoctorOverview from './pages/doctor/Overview'
 import DoctorPatients from './pages/doctor/Patients'
 import DoctorPatientRecords from './pages/doctor/PatientRecords'
 import DoctorSchedule from './pages/doctor/Schedule'
+import DoctorQueue from './pages/doctor/Queue'
 import DoctorPrescriptions from './pages/doctor/Prescriptions'
 import DoctorEmergency from './pages/doctor/Emergency'
 import DoctorRisk from './pages/doctor/Risk'
@@ -40,6 +41,15 @@ import AskAI from './pages/AskAI'
 import Notifications from './pages/Notifications'
 import Admin from './pages/Admin'
 import PublicShare from './pages/PublicShare'
+
+/* Role-aware landing for unknown routes: doctors -> /doctor, patients -> /patient. */
+function RoleHome() {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="card">Restoring session…</div>
+  if (!user) return <Navigate to="/" replace />
+  const home = user.role === 'doctor' ? '/doctor' : user.role === 'admin' ? '/admin' : '/patient'
+  return <Navigate to={home} replace />
+}
 
 export default function App() {
   return (
@@ -69,6 +79,7 @@ export default function App() {
                 <Route path="patients" element={<DoctorPatients />} />
                 <Route path="patients/:patientId" element={<DoctorPatientRecords />} />
                 <Route path="schedule" element={<DoctorSchedule />} />
+                <Route path="queue" element={<DoctorQueue />} />
                 <Route path="prescriptions" element={<DoctorPrescriptions />} />
                 <Route path="practice" element={<DoctorPractice />} />
                 <Route path="engage" element={<DoctorEngage />} />
@@ -86,6 +97,8 @@ export default function App() {
               <Route path="/timeline" element={<ProtectedRoute roles={['patient', 'doctor']}><Timeline /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Notifications /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Admin /></ProtectedRoute>} />
+              {/* Unknown URLs bounce to the signed-in role's home, not a generic page */}
+              <Route path="*" element={<RoleHome />} />
             </Routes>
           </main>
           <Footer />

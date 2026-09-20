@@ -59,7 +59,7 @@ export default function ForgotPassword() {
 
       {step === 1 && (
         <form onSubmit={sendOtp} style={s.form}>
-          <input placeholder="Account email or phone" value={identifier} onChange={(e) => setIdentifier(e.target.value)} required style={s.input} />
+          <input placeholder="Email / phone / Patient ID (AH-XXXX)" value={identifier} onChange={(e) => setIdentifier(e.target.value)} required style={s.input} />
           {err && <p style={{ color: 'red' }}>{err}</p>}
           {info && <p style={{ color: 'green' }}>{info}</p>}
           <button type="submit" style={s.btn}>Send reset code</button>

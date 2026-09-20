@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import AuthSplit from '../components/AuthSplit'
+import { SPECIALIZATIONS } from '../specializations'
 
 export default function Register() {
   const [form, setForm] = useState({ email: '', phone: '', password: '', full_name: '', role: 'patient', specialization: '', hospital: '', admin_key: '' })
@@ -57,9 +58,10 @@ export default function Register() {
           } else throw fe
         }
       } else {
-        await register({ ...form, email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone.trim(), license_no: '' })
+        const data = await register({ ...form, email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone.trim(), license_no: '' })
         try { localStorage.setItem('medrec_last_role', form.role) } catch { /* ignore */ }
-        nav('/login')
+        setInfo(`Account created${data?.health_id ? ` — your ID is ${data.health_id} (you can log in with email, phone or this ID)` : ''}. Redirecting to login…`)
+        setTimeout(() => nav('/login'), 2500)
       }
     } catch (e) {
       if (!e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
@@ -93,6 +95,7 @@ export default function Register() {
       'Export your full record anytime as PDF',
     ]}>
       <h2 style={{ marginTop: 0 }}>Create MedRec account</h2>
+      <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 4px' }}>You’ll get a unique ID (AH-XXXX) — log in later with email, phone or that ID.</p>
       {firebaseConfigured && <button onClick={submitGoogle} style={s.googleBtn}>Continue with Google</button>}
       <form onSubmit={submit} style={s.form}>
         <input placeholder="Full name" value={form.full_name} onChange={set('full_name')} required style={s.input} />
@@ -109,7 +112,10 @@ export default function Register() {
         )}
         {form.role === 'doctor' && (
           <>
-            <input placeholder="Specialization" value={form.specialization} onChange={set('specialization')} style={s.input} />
+            <select value={form.specialization} onChange={set('specialization')} style={{ ...s.input, width: '100%', maxWidth: '100%' }} required>
+              <option value="">Select specialization…</option>
+              {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+            </select>
             <input placeholder="Hospital" value={form.hospital} onChange={set('hospital')} style={s.input} />
           </>
         )}
@@ -124,8 +130,8 @@ export default function Register() {
 }
 
 const s = {
-  form: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 },
-  input: { padding: 10, fontSize: 15 },
+  form: { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12, width: '100%', maxWidth: '100%' },
+  input: { padding: 10, fontSize: 15, width: '100%', maxWidth: '100%', boxSizing: 'border-box' },
   btn: { padding: 10, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
   googleBtn: { width: '100%', padding: 10, background: '#fff', border: '1px solid #ccc', cursor: 'pointer', fontSize: 15, fontWeight: 600 },
 }

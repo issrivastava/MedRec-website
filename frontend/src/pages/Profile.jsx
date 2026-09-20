@@ -34,7 +34,7 @@ export default function Profile() {
 
   const copyId = async () => {
     try {
-      await navigator.clipboard.writeText(user?.id || '')
+      await navigator.clipboard.writeText(user?.health_id || user?.id || '')
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* clipboard unavailable */ }
@@ -148,7 +148,7 @@ export default function Profile() {
           <input value={phone} onChange={(e) => setPhone(e.target.value)} style={s.input} inputMode="tel" placeholder={user?.phone || 'Not set'} />
           <div style={s.detailGrid}>
             <Detail label={user?.role === 'doctor' ? 'Doctor ID' : 'Patient ID'} mono>
-              <span title={user?.id}>{user?.id}</span>{' '}
+              <span title={user?.id}>{user?.health_id || user?.id}</span>{' '}
               <button onClick={copyId} style={s.smallBtn}>{copied ? 'Copied ✓' : 'Copy'}</button>
             </Detail>
             <Detail label="Email">{user?.email}</Detail>
@@ -169,6 +169,12 @@ export default function Profile() {
                 <Detail label="License No">{details?.license_no || '—'}</Detail>
                 <Detail label="Hospital">{details?.hospital || '—'}</Detail>
                 <Detail label="Phone">{details?.phone || '—'}</Detail>
+                <Detail label="Education">{details?.education || '—'}</Detail>
+                <Detail label="Experience">{details?.experience_years != null ? `${details.experience_years} yrs` : '—'}</Detail>
+                <Detail label="Fee">{details?.consultation_fee != null ? `₹${details.consultation_fee}` : '—'}</Detail>
+                <Detail label="Languages">{details?.languages || '—'}</Detail>
+                <Detail label="Clinic">{details?.clinic_address || '—'}</Detail>
+                <Detail label="Timings">{details?.timings || '—'}</Detail>
               </>
             )}
           </div>

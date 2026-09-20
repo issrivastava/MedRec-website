@@ -12,10 +12,24 @@ export default function AIAssistant() {
   const [busy, setBusy] = useState(false)
   const [engine, setEngine] = useState('')
   const [useRecords, setUseRecords] = useState(false)
+  const [role, setRole] = useState('')
+  const [patients, setPatients] = useState([])
+  const [patientId, setPatientId] = useState('')
   const bottomRef = useRef(null)
 
   useEffect(() => {
     api.get('/api/assistant/status').then(({ data }) => setEngine(data.engine || '')).catch(() => {})
+    // Doctors need a patient picker so "ground in records" can read that
+    // patient's data via AI (backend requires patient_id for doctors).
+    api.get('/api/auth/me').then(({ data }) => {
+      setRole(data.role || '')
+      if (data.role === 'doctor') {
+        api.get('/api/doctors/patients').then(({ data: list }) => {
+          setPatients(list || [])
+          if ((list || []).length === 1) setPatientId(list[0].patient_id)
+        }).catch(() => {})
+      }
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -35,7 +49,10 @@ export default function AIAssistant() {
     setInput('')
     setBusy(true)
     try {
-      const { data } = await api.post('/api/assistant/ask', { question: q, history, use_records: useRecords }, { timeout: AI_TIMEOUT })
+      const body = { question: q, history, use_records: useRecords }
+      // Doctors: ground in the selected assigned patient's records.
+      if (useRecords && role === 'doctor' && patientId) body.patient_id = patientId
+      const { data } = await api.post('/api/assistant/ask', body, { timeout: AI_TIMEOUT })
       setEngine(data.engine || '')
       setMessages((m) => [...m, { role: 'assistant', text: data.answer + (data.used_records ? '\n\n📎 Grounded in your MedRec records.' : '') }])
     } catch (err) {
@@ -98,6 +115,17 @@ export default function AIAssistant() {
         <input type="checkbox" checked={useRecords} onChange={(e) => setUseRecords(e.target.checked)} />
         Ground in my MedRec records (reports, vitals, prescriptions) — RAG
       </label>
+      {useRecords && role === 'doctor' && (
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginTop: 8 }}>
+          Read records of:
+          <select value={patientId} onChange={(e) => setPatientId(e.target.value)} style={{ padding: 6, flex: 1 }}>
+            <option value="">— Select assigned patient —</option>
+            {patients.map((p) => (
+              <option key={p.patient_id} value={p.patient_id}>{p.patient_name} ({p.patient_email})</option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <p style={{ fontSize: 12, color: '#5d6b7a', marginTop: 8 }}>
         ℹ️ AI answers are informational only — not medical advice. Always consult your doctor.

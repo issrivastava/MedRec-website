@@ -20,6 +20,7 @@ function Shell() {
     { key: 'overview', label: 'Dashboard', icon: '🏠', to: '/doctor' },
     { key: 'patients', label: 'Patients', icon: '🧑‍🤝‍🧑', to: '/doctor/patients', badge: patients.length },
     { key: 'schedule', label: 'Appointments', icon: '📅', to: '/doctor/schedule', badge: booked },
+    { key: 'queue', label: 'Live Queue', icon: '📺', to: '/doctor/queue' },
     { key: 'prescriptions', label: 'Prescriptions', icon: '✍️', to: '/doctor/prescriptions' },
     { key: 'emergency', label: 'Emergency', icon: '🚨', to: '/doctor/emergency', badge: emgCount },
     { key: 'profile', label: 'My Profile', icon: '👤', to: '/doctor/profile' },
@@ -42,9 +43,9 @@ function Shell() {
   const firstName = user?.full_name ? user.full_name.split(' ')[0] : ''
 
   return (
-    <div className="dash">
+    <div className="dash dash-doctor">
       <aside className="dash-side">
-        <div className="dash-side-title">DOCTOR</div>
+        <div className="dash-side-title">🩺 DOCTOR — PRACTICE</div>
         {core.map((it) => (
           <NavLink
             key={it.key}
@@ -86,7 +87,7 @@ function Shell() {
       </aside>
       <div className="dash-main">
         <div className="dash-top">
-          <h1>Welcome back{firstName ? `, Dr. ${firstName}` : ''}</h1>
+          <h1>Welcome back{firstName ? `, Dr. ${firstName}` : ''} <span className="pill pill-info">DOCTOR</span></h1>
           <p>Appointments, patients and reports — everything else lives under More tools.</p>
         </div>
         <Outlet />

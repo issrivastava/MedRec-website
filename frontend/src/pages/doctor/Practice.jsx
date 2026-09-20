@@ -40,6 +40,7 @@ function Queue() {
   const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10))
   const [q, setQ] = useState(null)
   const [fee, setFee] = useState({})
+  const [remindMsg, setRemindMsg] = useState('')
   const load = async () => {
     const { data } = await api.get('/api/practice/queue', { params: { day } })
     setQ(data)
@@ -60,6 +61,15 @@ function Queue() {
     await api.patch(`/api/scheduling/appointments/${id}?status=completed`)
     load()
   }
+  const remindTomorrow = async () => {
+    setRemindMsg('')
+    try {
+      const { data } = await api.post('/api/practice/reminders', null, { params: { days_ahead: 1 } })
+      setRemindMsg(`🔔 Reminded ${data.reminded}/${data.booked} patients for ${data.date}`)
+    } catch (e) {
+      setRemindMsg(e.response?.data?.detail || 'Could not send reminders')
+    }
+  }
   if (!q) return <div className="empty">Loading queue…</div>
   return (
     <section style={s.card}>
@@ -70,7 +80,10 @@ function Queue() {
         <span className="pill pill-ok">Checked-in {q.checked_in}</span>
         <span className="pill pill-open">Pending {q.pending}</span>
         <a href="/api/practice/calendar.ics" style={{ fontWeight: 700 }}>📥 Calendar (.ics)</a>
+        <button onClick={remindTomorrow}>🔔 Remind tomorrow</button>
+        <Link to="/doctor/queue"><button>📺 Live display</button></Link>
       </div>
+      {remindMsg && <p style={{ color: remindMsg.startsWith('🔔') ? 'green' : 'red' }}>{remindMsg}</p>}
       {q.queue.map((a) => (
         <div key={a.id} style={s.row}>
           <span>

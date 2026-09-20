@@ -14,6 +14,20 @@ Base.metadata.create_all(bind=engine)
 
 def _ensure_columns() -> None:
     """Add newer columns on databases created before those updates."""
+    def _add(table: str, col: str, ddl: str) -> None:
+        # Each ALTER in its own transaction: on Postgres one bad DDL used
+        # to roll back every other column (the doctor 500s). IF NOT EXISTS
+        # makes it safe to re-run. TIMESTAMP (not DATETIME) for Postgres.
+        ddl = ddl.replace("DATETIME", "TIMESTAMP").replace(
+            "BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+        try:
+            with engine.begin() as c:
+                if engine.dialect.name == "postgresql":
+                    c.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+                else:
+                    c.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+        except Exception:
+            pass  # column exists (sqlite) or already handled
     try:
         insp = inspect(engine)
         tables = set(insp.get_table_names())
@@ -74,39 +88,54 @@ def _ensure_columns() -> None:
                 ("video_url", "VARCHAR(1024)"),
                 ("cancel_reason", "VARCHAR(500)"),
                 ("token_no", "INTEGER"),
-                ("checked_in", "BOOLEAN DEFAULT 0"),
-                ("checked_in_at", "DATETIME"),
+                ("checked_in", "BOOLEAN DEFAULT FALSE"),
+                ("checked_in_at", "TIMESTAMP"),
                 ("fee", "FLOAT"),
                 ("payment_status", "VARCHAR(20) DEFAULT 'unpaid'"),
             ]:
                 if appt_extra and col not in appt_extra:
-                    try:
-                        conn.execute(text(f"ALTER TABLE appointments ADD COLUMN {col} {ddl}"))
-                    except Exception:
-                        pass
+                    _add("appointments", col, ddl)
             for col, ddl in [
                 ("education", "TEXT"), ("experience_years", "INTEGER"),
                 ("consultation_fee", "FLOAT"), ("languages", "VARCHAR(255)"),
                 ("bio", "TEXT"), ("clinic_address", "TEXT"), ("timings", "VARCHAR(500)"),
             ]:
                 if docprof_cols and col not in docprof_cols:
-                    try:
-                        conn.execute(text(f"ALTER TABLE doctor_profiles ADD COLUMN {col} {ddl}"))
-                    except Exception:
-                        pass
+                    _add("doctor_profiles", col, ddl)
             for col, ddl in [
                 ("diagnosis_code", "VARCHAR(20)"), ("diagnosis_name", "VARCHAR(255)"),
             ]:
                 if visit_extra and col not in visit_extra:
-                    try:
-                        conn.execute(text(f"ALTER TABLE visit_notes ADD COLUMN {col} {ddl}"))
-                    except Exception:
-                        pass
+                    _add("visit_notes", col, ddl)
+            # AH-XXXX health IDs (unique across users + family_members)
+            try:
+                u_cols = [c["name"] for c in insp.get_columns("users")] if "users" in tables else []
+                if u_cols and "health_id" not in u_cols:
+                    _add("users", "health_id", "VARCHAR(10)")
+            except Exception:
+                pass
+            try:
+                f_cols = [c["name"] for c in insp.get_columns("family_members")] if "family_members" in tables else []
+                if f_cols and "health_id" not in f_cols:
+                    _add("family_members", "health_id", "VARCHAR(10)")
+            except Exception:
+                pass
     except Exception:
         pass  # fresh create_all already covers new databases
 
 
 _ensure_columns()
+
+try:
+    from app.services.health_ids import backfill_missing
+
+    db = SessionLocal()
+    try:
+        backfill_missing(db)
+    finally:
+        db.close()
+except Exception:
+    pass
 
 try:
     from app.services.labranges import seed_defaults

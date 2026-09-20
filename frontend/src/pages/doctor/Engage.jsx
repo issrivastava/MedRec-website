@@ -7,11 +7,12 @@ export default function Engage() {
   return (
     <div className="rise">
       <div className="toolbar-row" style={{ marginBottom: 12 }}>
-        {[['groups', '👥 Patient Groups'], ['broadcast', '📣 Broadcast'], ['adherence', '✅ Adherence']].map(([k, l]) => (
+        {[['groups', '👥 Patient Groups'], ['recall', '📞 Recall'], ['broadcast', '📣 Broadcast'], ['adherence', '✅ Adherence']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={tab === k ? s.tabActive : s.tab}>{l}</button>
         ))}
       </div>
       {tab === 'groups' && <Groups />}
+      {tab === 'recall' && <Recall />}
       {tab === 'broadcast' && <Broadcast />}
       {tab === 'adherence' && <Adherence />}
     </div>
@@ -92,6 +93,52 @@ function Broadcast() {
         </div>
       ))}
       {!rows.length && <small>No broadcasts yet.</small>}
+    </section>
+  )
+}
+
+function Recall() {
+  const [data, setData] = useState(null)
+  const [msg, setMsg] = useState('')
+  const [busyId, setBusyId] = useState('')
+  const load = async () => {
+    const { data } = await api.get('/api/practice/followups', { params: { filter: 'overdue' } })
+    setData(data)
+  }
+  useEffect(() => { load().catch(console.error) }, [])
+  const nudge = async (r) => {
+    setBusyId(r.patient_id); setMsg('')
+    try {
+      await api.post('/api/practice/nudge', {
+        patient_id: r.patient_id,
+        message: `Reminder from your doctor: your follow-up "${r.title || 'visit'}" was due on ${r.follow_up_date}. Please book a visit soon.`,
+      })
+      setMsg(`Nudged ${r.patient_name} ✓`)
+    } catch (e) {
+      setMsg(e.response?.data?.detail || 'Could not nudge')
+    } finally {
+      setBusyId('')
+    }
+  }
+  if (!data) return <div className="empty">Loading recall list…</div>
+  return (
+    <section style={s.card}>
+      <h3 className="sec-head"><span className="tile t-rose">📞</span> Recall — overdue follow-ups ({data.count})</h3>
+      <p style={{ fontSize: 13, color: '#5d6b7a' }}>One tap reminds the patient in-app. Call the ones that stay overdue.</p>
+      {msg && <p style={{ color: msg.includes('✓') ? 'green' : 'red' }}>{msg}</p>}
+      {data.results.map((r) => (
+        <div key={r.id} style={s.row}>
+          <span><b>{r.patient_name}</b> — {r.title || r.note_type}
+            <br /><small style={{ color: '#5d6b7a' }}>due {r.follow_up_date} · {r.days_overdue}d overdue</small></span>
+          <span style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => nudge(r)} disabled={busyId === r.patient_id}>
+              {busyId === r.patient_id ? '…' : '📞 Nudge'}
+            </button>
+            <Link to={`/doctor/patients/${r.patient_id}`}><button>Records →</button></Link>
+          </span>
+        </div>
+      ))}
+      {!data.results.length && <div className="empty">Nothing overdue — all follow-ups on track 🎉</div>}
     </section>
   )
 }

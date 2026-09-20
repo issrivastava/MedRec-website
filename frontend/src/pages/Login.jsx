@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { fetchSignInMethodsForEmail } from 'firebase/auth'
 import { useAuth } from '../context/AuthContext'
+import { auth } from '../firebase'
 import AuthSplit from '../components/AuthSplit'
+import { SPECIALIZATIONS } from '../specializations'
 
 function friendlyError(e, fallback) {
   if (!e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error' || String(e.message || '').toLowerCase().includes('network'))) {
-    return 'Backend is not reachable at http://localhost:8000. Start it: cd backend → venv\\Scripts\\activate → uvicorn app.main:app --reload --port 8000. Then open http://localhost:8000/docs to confirm, wait 10s and retry.'
+    return 'Could not reach the backend at http://localhost:8000 for this request (the health badge above may be stale). Keep the backend terminal running: cd backend → .venv\\Scripts\\Activate.ps1 → py -3.11 -m uvicorn app.main:app --reload --port 8000. Then open http://localhost:8000/docs to confirm, wait 10s and retry. If it keeps failing, check the backend terminal for a traceback on POST /api/auth/firebase.'
   }
   if (e.code === 'ECONNABORTED' || String(e.message || '').toLowerCase().includes('timeout')) {
     return 'Server took too long — it may be waking up (Ollama cold start). Wait 30s and retry.'
@@ -40,6 +43,7 @@ export default function Login() {
   const [role, setRole] = useState(() => {
     try { return localStorage.getItem('medrec_last_role') === 'doctor' ? 'doctor' : 'patient' } catch { return 'patient' }
   })
+  const [specialization, setSpecialization] = useState('')
   const [backendUp, setBackendUp] = useState(null) // null=checking, true/false
   const [showLocal, setShowLocal] = useState(false)
   const [mode, setMode] = useState('password') // password | otp
@@ -81,17 +85,39 @@ export default function Login() {
 
   const submitFirebase = async (e) => {
     e.preventDefault()
-    setErr('')
+    setErr(''); setInfo('')
     try {
       // Pass the selected role so first-time doctors are created as doctors.
-      go(await firebaseLogin(email, password, role))
-    } catch (e) { setErr(friendlyError(e, 'Firebase login failed')) }
+      go(await firebaseLogin(email, password, role, role === 'doctor' ? specialization || null : null))
+    } catch (e) {
+      // Wrong-password / unknown-email: ask Firebase which sign-in method this
+      // email actually uses, and point the user at the right button instead of
+      // a generic error. (If enumeration protection blocks the lookup we fall
+      // back to the generic message.)
+      if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password') {
+        setErr('Checking which sign-in method this email uses…')
+        try {
+          const methods = auth ? await fetchSignInMethodsForEmail(auth, email.trim()) : []
+          if (methods.includes('google.com') && !methods.includes('password')) {
+            setErr('This email was set up with Google sign-in (no password exists for it). Click "Continue with Google as Doctor" above instead of typing a password.')
+          } else if (methods.includes('password')) {
+            setErr('Wrong password for this email. Use "Forgot password?" below to reset it — or "Continue with Google" if you linked Google to this account.')
+          } else if (!methods.length) {
+            setErr('No Firebase account found for this email. Register first — or, if you created a local/OTP account, use "Use OTP / local login instead".')
+          } else {
+            setErr(friendlyError(e, 'Firebase login failed'))
+          }
+        } catch {
+          setErr(friendlyError(e, 'Firebase login failed'))
+        }
+      } else setErr(friendlyError(e, 'Firebase login failed'))
+    }
   }
 
   const submitGoogle = async () => {
     setErr(''); setInfo('')
     try {
-      go(await googleLogin(role))
+      go(await googleLogin(role, role === 'doctor' ? specialization || null : null))
     } catch (e) {
       const msg = String(e.code || e.message || '')
       if (msg.includes('popup-blocked') || msg.includes('popup')) setErr('Google popup was blocked — allow popups and retry.')
@@ -102,9 +128,9 @@ export default function Login() {
   }
 
   const submitRole = async () => {
-    setErr('')
+    setErr(''); setInfo('Finishing sign-in as ' + role + '… (first verification can take up to a minute)')
     try {
-      go(await completeRole(role))
+      go(await completeRole(role, role === 'doctor' ? specialization || null : null))
     } catch (e) { setErr(friendlyError(e, 'Could not finish sign-in')) }
   }
 
@@ -171,7 +197,7 @@ export default function Login() {
       <p style={s.backendBadge}>
         {backendUp === null ? 'Checking backend…' : backendUp
           ? '● Backend online'
-          : '○ Backend offline — start it: backend → uvicorn app.main:app --reload --port 8000'}
+          : '○ Backend offline — start it: cd backend → .venv\\Scripts\\Activate.ps1 → py -3.11 -m uvicorn app.main:app --reload --port 8000'}
       </p>
 
       {needsRole ? (
@@ -182,17 +208,27 @@ export default function Login() {
             <option value="patient">Patient</option>
             <option value="doctor">Doctor</option>
           </select>
+          {role === 'doctor' && (
+            <select value={specialization} onChange={(e) => setSpecialization(e.target.value)} style={s.input} required>
+              <option value="">Select specialization…</option>
+              {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+            </select>
+          )}
           <button onClick={submitRole} style={s.btn}>Continue as {role}</button>
           {err && <p style={{ color: 'red' }}>{err}</p>}
         </div>
       ) : firebaseConfigured && !showLocal ? (
         <>
-          <label style={s.roleLabel}>I am a:
-            <select value={role} onChange={(e) => pickRole(e.target.value)} style={s.input}>
-              <option value="patient">Patient</option>
-              <option value="doctor">Doctor</option>
+          <select value={role} onChange={(e) => pickRole(e.target.value)} style={s.input} aria-label="I am a">
+            <option value="patient">Patient</option>
+            <option value="doctor">Doctor</option>
+          </select>
+          {role === 'doctor' && (
+            <select value={specialization} onChange={(e) => setSpecialization(e.target.value)} style={s.input} aria-label="Specialization">
+              <option value="">Select specialization…</option>
+              {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
             </select>
-          </label>
+          )}
           <p style={s.roleHint}>
             {role === 'doctor'
               ? 'Doctor login uses the same form. First-time doctors: pick Doctor above before continuing.'
@@ -252,8 +288,8 @@ export default function Login() {
           </div>
           {mode === 'password' ? (
             <form onSubmit={submitLocal} style={s.form}>
-              <p style={s.note}>2-step login: password first, then <b>one code</b> is sent to <b>both</b> your email and phone.</p>
-              <input placeholder="Email or phone" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
+              <p style={s.note}>2-step login: password first, then <b>one code</b> is sent to <b>both</b> your email and phone. You can identify with email, phone or Patient ID (AH-XXXX).</p>
+              <input placeholder="Email / phone / Patient ID (AH-XXXX)" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
               <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={s.input} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
               {info && <p style={{ color: 'green' }}>{info}</p>}
@@ -261,8 +297,8 @@ export default function Login() {
             </form>
           ) : !otpSent ? (
             <form onSubmit={sendOtp} style={s.form}>
-              <p style={s.note}>One code is sent to <b>both</b> your email and phone (SMS) — enter either to identify yourself.</p>
-              <input placeholder="Email or phone" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
+              <p style={s.note}>One code is sent to <b>both</b> your email and phone (SMS) — enter email, phone or Patient ID (AH-XXXX) to identify yourself.</p>
+              <input placeholder="Email / phone / Patient ID (AH-XXXX)" value={email} onChange={(e) => setEmail(e.target.value)} required style={s.input} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
               {info && <p style={{ color: 'green' }}>{info}</p>}
               <button type="submit" style={s.btn}>Send login code</button>
@@ -290,8 +326,8 @@ export default function Login() {
 }
 
 const s = {
-  form: { display: 'flex', flexDirection: 'column', gap: 10 },
-  input: { padding: 10, fontSize: 15 },
+  form: { display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: '100%' },
+  input: { padding: 10, fontSize: 15, width: '100%', maxWidth: '100%', boxSizing: 'border-box' },
   btn: { padding: 10, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer' },
   googleBtn: { width: '100%', padding: 10, background: '#fff', border: '1px solid #ccc', cursor: 'pointer', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 },
   gLogo: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#4285F4', color: '#fff', fontWeight: 800 },

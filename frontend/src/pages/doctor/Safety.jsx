@@ -22,11 +22,25 @@ export default function Safety() {
 function Audit() {
   const [data, setData] = useState(null)
   useEffect(() => { api.get('/api/practice/audit', { params: { limit: 100 } }).then(({ data }) => setData(data)).catch(console.error) }, [])
+  const exportCsv = () => {
+    if (!data?.results?.length) return
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const lines = ['action,patient,detail,at',
+      ...data.results.map((a) => [a.action, a.patient_name || '', a.detail || '', a.created_at].map(esc).join(','))]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const el = document.createElement('a')
+    el.href = url
+    el.download = `medrec-audit-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(el); el.click(); el.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
   if (!data) return <div className="empty">Loading audit trail…</div>
   return (
     <section style={s.card}>
       <h3 className="sec-head"><span className="tile t-blue">🛡️</span> My Audit Trail ({data.count})</h3>
       <p style={s.sub}>Every record view, prescription, referral, broadcast and AI use is logged here — and patients are notified when you open their records.</p>
+      {!!data.results.length && <button onClick={exportCsv} style={{ marginBottom: 8 }}>⬇ Export CSV (compliance)</button>}
       {data.results.map((a) => (
         <div key={a.id} style={s.row}>
           <span><b>{a.action}</b>{a.patient_name ? ` → ${a.patient_name}` : ''}{a.detail ? ` · ${a.detail}` : ''}

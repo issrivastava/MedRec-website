@@ -68,15 +68,32 @@ function SoapTool() {
   const [notes, setNotes] = useState('')
   const [out, setOut] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [savedMsg, setSavedMsg] = useState('')
   const run = async () => {
-    setBusy(true); setErr(''); setOut(null)
+    setBusy(true); setErr(''); setOut(null); setSavedMsg('')
     try {
       const { data } = await api.post('/api/practice/ai-soap',
         { notes, patient_id: selectedId || undefined }, { timeout: AI_TIMEOUT })
       setOut(data)
     } catch (e) { setErr(e.response?.data?.detail || 'AI unavailable — start Ollama or set GEMINI_API_KEY') }
     finally { setBusy(false) }
+  }
+  const saveAsNote = async () => {
+    if (!out?.soap_draft) return
+    if (!selectedId) { setErr('Select a patient in Patients first, then save.'); return }
+    setSaving(true); setErr(''); setSavedMsg('')
+    try {
+      await api.post('/api/visits', {
+        patient_id: selectedId,
+        note_type: 'note',
+        title: `AI SOAP draft — ${new Date().toISOString().slice(0, 10)}`,
+        content: `${out.soap_draft}\n\n---\nSource scribbles: ${notes}`,
+      })
+      setSavedMsg('Saved as visit note ✓ (find it under Patient Records → Notes / Rx)')
+    } catch (e) { setErr(e.response?.data?.detail || 'Could not save visit note') }
+    finally { setSaving(false) }
   }
   return (
     <section style={s.card}>
@@ -89,6 +106,13 @@ function SoapTool() {
         <div style={s.aiBox}>
           <small style={{ color: '#5d6b7a' }}>via {out.engine} · {out.disclaimer}</small>
           <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: '6px 0 0' }}>{out.soap_draft}</pre>
+          <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={saveAsNote} disabled={saving || !selectedId}>
+              {saving ? 'Saving…' : '💾 Save as visit note'}
+            </button>
+            {!selectedId && <small style={{ color: '#92400e' }}>Pick a patient in Patients to enable saving.</small>}
+          </div>
+          {savedMsg && <p style={{ color: 'green', marginBottom: 0 }}>{savedMsg}</p>}
         </div>
       )}
     </section>

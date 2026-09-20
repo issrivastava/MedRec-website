@@ -16,6 +16,12 @@ export function shortId(id) {
   return id.length > 12 ? `${id.slice(0, 8)}…` : id
 }
 
+export function displayId(user) {
+  if (!user) return '—'
+  if (user.health_id) return user.health_id
+  return shortId(user.id)
+}
+
 export function formatDate(dt) {
   if (!dt) return '—'
   try {

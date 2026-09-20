@@ -18,6 +18,7 @@ from app.models.tables import (
 from app.schemas.schemas import (
     LabOrderIn, CarePlanIn, CertificateIn, LeaveIn, BroadcastIn,
     PreVisitIn, ReviewReplyIn, CheckinIn, SoapIn, InteractionIn,
+    RxSafetyIn, NudgeIn,
 )
 from app.services.notify import notify
 
@@ -801,3 +802,87 @@ def patient_shares(patient_id: str, db: Session = Depends(get_db),
     return [{"id": r.id, "scope": r.scope, "label": r.label, "url_path": f"/s/{r.token}",
              "expires_at": r.expires_at, "max_views": r.max_views, "views": r.views,
              "revoked": r.revoked, "created_at": r.created_at} for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# 7. New: Rx safety screen, recall nudges, appointment reminders
+# ---------------------------------------------------------------------------
+
+@router.post("/rx-safety")
+def rx_safety(data: RxSafetyIn, db: Session = Depends(get_db),
+              user: User = Depends(require_doctor)):
+    """Offline pre-prescription screen: proposed meds vs the patient's ACTIVE
+    allergies + ONGOING medicines. Returns warnings (major/moderate) — the
+    doctor still decides. Deterministic (no LLM), so it works with no AI."""
+    from app.models.tables import AllergyRecord, MedicationRecord
+    _require_patient(db, user.id, data.patient_id)
+    meds = [m.strip() for m in data.medicines if m and m.strip()]
+    if not meds:
+        raise HTTPException(status_code=400, detail="No medicines given")
+    allergies = db.query(AllergyRecord).filter_by(
+        owner_id=data.patient_id, status="active").all()
+    ongoing = db.query(MedicationRecord).filter_by(
+        owner_id=data.patient_id, status="ongoing").all()
+    warnings: list[dict] = []
+    for m in meds:
+        ml = m.lower()
+        for a in allergies:
+            al = (a.allergen or "").strip().lower()
+            if al and (al in ml or ml in al):
+                warnings.append({
+                    "level": "major", "medicine": m,
+                    "reason": (f"Active allergy: {a.allergen}"
+                               f"{f' — {a.reaction}' if a.reaction else ''}"
+                               f" ({a.severity or 'severity unknown'})"),
+                })
+        for o in ongoing:
+            ol = (o.medicine_name or "").strip().lower()
+            if ol and (ol == ml or ol in ml or ml in ol):
+                warnings.append({
+                    "level": "moderate", "medicine": m,
+                    "reason": (f"Already ongoing: {o.medicine_name}"
+                               f"{f' {o.dosage}' if o.dosage else ''}"
+                               f"{f' · {o.frequency}' if o.frequency else ''}"),
+                })
+    _audit(db, user.id, "rx_safety", data.patient_id,
+           f"{len(meds)} checked, {len(warnings)} warnings")
+    return {"warnings": warnings, "checked": len(meds),
+            "disclaimer": "Screening aid only — confirm with a pharmacist/formulary."}
+
+
+@router.post("/nudge", status_code=201)
+def nudge_patient(data: NudgeIn, db: Session = Depends(get_db),
+                  user: User = Depends(require_doctor)):
+    """Recall one assigned patient (overdue follow-up, due visit, lab pending...)."""
+    _require_patient(db, user.id, data.patient_id)
+    notify(db, data.patient_id, "doctor_nudge",
+           f"Reminder from Dr. {user.full_name}",
+           data.message.strip(), link="/patient")
+    _audit(db, user.id, "nudge", data.patient_id, data.message.strip()[:200])
+    return {"ok": True, "patient_id": data.patient_id}
+
+
+@router.post("/reminders")
+def send_reminders(days_ahead: int = 1, db: Session = Depends(get_db),
+                   user: User = Depends(require_doctor)):
+    """Remind all patients with BOOKED appointments N days ahead (default tomorrow)."""
+    if not 0 <= days_ahead <= 30:
+        raise HTTPException(status_code=400, detail="days_ahead must be 0–30")
+    target = date.today() + timedelta(days=days_ahead)
+    rows = db.query(Appointment).filter_by(
+        doctor_id=user.id, date=target, status="booked").all()
+    sent = 0
+    for a in rows:
+        try:
+            notify(db, a.patient_id, "appointment_reminder",
+                   f"Reminder: visit with Dr. {user.full_name} on {target.isoformat()}",
+                   f"Token {getattr(a, 'token_no', '') or '—'} · "
+                   f"{a.start_time.strftime('%H:%M')}–{a.end_time.strftime('%H:%M')}"
+                   f"{f' · {a.reason}' if a.reason else ''}. Reply if you can't make it.",
+                   link="/patient")
+            sent += 1
+        except Exception:
+            pass
+    _audit(db, user.id, "reminders", None, f"{sent}/{len(rows)} for {target.isoformat()}")
+    return {"ok": True, "date": target.isoformat(),
+            "booked": len(rows), "reminded": sent}

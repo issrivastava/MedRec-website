@@ -41,10 +41,14 @@ def _throttle_reset(key: str) -> None:
 
 
 def _find_user(db: Session, identifier: str):
-    """Find a user by email OR phone. Returns None if blank/unknown."""
+    """Find a user by email OR phone OR AH-XXXX health ID. Returns None if blank/unknown."""
     identifier = (identifier or "").strip()
     if not identifier:
         return None
+    # AH-XXXX patient ID (case-insensitive, spaces tolerated)
+    hid = identifier.upper().replace(" ", "")
+    if hid.startswith("AH-"):
+        return db.query(User).filter(User.health_id == hid).first()
     if "@" in identifier:
         return db.query(User).filter(User.email == identifier.lower()).first()
     try:
@@ -94,6 +98,8 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
         role=data.role,
         phone=phone,
     )
+    from app.services.health_ids import ensure_health_id
+    ensure_health_id(db, user)
     db.add(user)
     db.flush()
     if data.role == "patient":
@@ -119,7 +125,12 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     """Step 1 of 2-step login: verify email/phone + password, then issue ONE
     OTP to BOTH email and SMS. Returns 202 {otp_required: true, ...}.
     Step 2: the user enters that code at POST /otp/verify (purpose=login)
-    to receive the session JWT. No session is issued before the code."""
+    to receive the session JWT. No session is issued before the code.
+
+    Dev fallback: when neither SMTP nor SMS is configured the code cannot be
+    delivered (sent_via == "dev-log"). In that case a password-only login
+    issues the JWT directly (200) so local dev is not locked out. Once
+    MAIL_*/SMS_* is configured, the 2-step OTP flow is enforced again."""
     from fastapi.responses import JSONResponse
     from app.core.config import settings
 
@@ -127,12 +138,19 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     _throttle_check(f"login:{identifier.lower()}")
     user = _find_user(db, identifier)
     if not user or not verify_password(form.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email/phone or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email/phone/Patient ID or password")
     _throttle_reset(f"login:{identifier.lower()}")
     try:
         out = otp_service.request_otp(db, email=user.email, phone=user.phone, purpose="login")
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
+    # No delivery channel configured -> password is sufficient (local dev).
+    # Frontend AuthContext.login() already handles a direct {access_token} reply.
+    if out.get("sent_via") == "dev-log" and not settings.OTP_DEV_ECHO:
+        token = create_access_token(subject=user.id)
+        return {"access_token": token, "token_type": "bearer", "user": user,
+                "otp_skipped": True,
+                "warning": "OTP delivery not configured — logged in with password only. Set MAIL_*/SMS_* to enforce 2-step login."}
     # SECURITY: dev_code is only ever sent when the operator explicitly set
     # OTP_DEV_ECHO=True for local dev. Otherwise the client gets no code.
     dev_code = out.get("dev_code") if settings.OTP_DEV_ECHO else None
@@ -226,12 +244,17 @@ def firebase_login(data: FirebaseLoginIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Firebase token")
 
     user = None
+    matched_by = None
     if claim["uid"]:
         user = db.query(User).filter(User.firebase_uid == claim["uid"]).first()
+        if user:
+            matched_by = "account"
     if not user:
         user = db.query(User).filter(User.email == claim["email"]).first()
-        if user and claim["uid"]:
-            user.firebase_uid = claim["uid"]  # link existing account
+        if user:
+            matched_by = "email"
+            if claim["uid"]:
+                user.firebase_uid = claim["uid"]  # link existing account
     phone = None
     if data.phone and data.phone.strip():
         try:
@@ -241,8 +264,10 @@ def firebase_login(data: FirebaseLoginIn, db: Session = Depends(get_db)):
     if not user and phone:
         # link by phone number if the email is new but phone matches
         user = db.query(User).filter(User.phone == phone).first()
-        if user and claim["uid"] and not user.firebase_uid:
-            user.firebase_uid = claim["uid"]
+        if user:
+            matched_by = "phone"
+            if claim["uid"] and not user.firebase_uid:
+                user.firebase_uid = claim["uid"]
     if not user:
         if not data.role:
             raise HTTPException(
@@ -251,6 +276,7 @@ def firebase_login(data: FirebaseLoginIn, db: Session = Depends(get_db)):
             )
         import secrets
 
+        from app.services.health_ids import ensure_health_id
         user = User(
             email=claim["email"],
             hashed_password=hash_password(secrets.token_hex(32)),  # unusable random password
@@ -259,6 +285,7 @@ def firebase_login(data: FirebaseLoginIn, db: Session = Depends(get_db)):
             phone=phone,
             firebase_uid=claim["uid"] or None,
         )
+        ensure_health_id(db, user)
         db.add(user)
         db.flush()
         if data.role == "patient":
@@ -276,11 +303,36 @@ def firebase_login(data: FirebaseLoginIn, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
     else:
+        # Existing account: the requested role (the "I am a: patient/doctor"
+        # picker on the login page) must match the account's real role.
+        # Without this, a doctor picking "Doctor" on a patient-created email
+        # silently landed on the PATIENT dashboard — the "same dashboard"
+        # confusion. Fail loudly instead so the user registers the right type.
+        if data.role and user.role != data.role:
+            want = "doctor" if data.role == "doctor" else "patient"
+            have = user.role
+            if matched_by == "phone":
+                raise HTTPException(
+                    status_code=403,
+                    detail=(f"This phone number ({phone}) is already on your {have} account. "
+                            f"One phone number = one account: either clear it from the {have} "
+                            f"profile first, use a different number, or leave phone blank — "
+                            f"then register the {want} account again."),
+                )
+            raise HTTPException(
+                status_code=403,
+                detail=(f"This email is registered as {have}, not {want}. "
+                        f"Log in as {have}, or register a separate {want} account "
+                        f"with a different email."),
+            )
         if phone and not user.phone:
             clash = db.query(User).filter(User.phone == phone, User.id != user.id).first()
             if clash:
                 raise HTTPException(status_code=400, detail="Phone number already in use")
             user.phone = phone
+        if not getattr(user, "health_id", None):
+            from app.services.health_ids import ensure_health_id
+            ensure_health_id(db, user)
         db.commit()  # persist uid/phone link if changed
         db.refresh(user)
     token = create_access_token(subject=user.id)
@@ -332,10 +384,10 @@ def otp_request(data: OtpRequestIn, db: Session = Depends(get_db)):
 
     user = None
     if data.purpose in ("login", "reset"):
-        identifier = (data.email or data.phone or "").strip()
+        identifier = (data.email or data.phone or data.health_id or "").strip()
         user = _find_user(db, identifier)
         if not user:
-            raise HTTPException(status_code=404, detail="No account found for this email/phone")
+            raise HTTPException(status_code=404, detail="No account found for this email/phone/ID")
     email, phone = _otp_destinations(data.email, data.phone, user)
     try:
         out = otp_service.request_otp(db, email=email, phone=phone, purpose=data.purpose)
@@ -348,10 +400,22 @@ def otp_request(data: OtpRequestIn, db: Session = Depends(get_db)):
                          dev_code=dev_code)
 
 
-def _verify_target(data_email, data_phone) -> str:
-    identifier = (data_email or data_phone or "").strip()
+def _verify_target(data_email, data_phone, data_health_id=None) -> str:
+    identifier = (data_email or data_phone or data_health_id or "").strip()
     if not identifier:
-        raise HTTPException(status_code=400, detail="Email or phone is required")
+        raise HTTPException(status_code=400, detail="Email, phone or Patient ID (AH-XXXX) is required")
+    return identifier
+
+
+def _resolve_otp_identifier(db: Session, identifier: str) -> str:
+    """Map AH-XXXX to the account's email/phone so OTP rows (keyed by
+    email/phone) still verify when the user typed their Patient ID."""
+    hid = (identifier or "").upper().replace(" ", "")
+    if hid.startswith("AH-"):
+        user = _find_user(db, hid)
+        if not user:
+            return hid  # let caller return 404
+        return user.email or user.phone or hid
     return identifier
 
 
@@ -360,9 +424,10 @@ def otp_verify(data: OtpVerifyIn, db: Session = Depends(get_db)):
     """Exchange a valid login/register OTP (from email OR sms — same code) for a session JWT."""
     if data.purpose not in ("login", "register"):
         raise HTTPException(status_code=400, detail="Use /reset-password for password-reset codes")
-    identifier = _verify_target(data.email, data.phone)
+    identifier = _verify_target(data.email, data.phone, data.health_id)
     _throttle_check(f"otp:{identifier.lower()}", limit=8)
-    if not otp_service.consume_otp(db, identifier, data.code, data.purpose):
+    resolved = _resolve_otp_identifier(db, identifier)
+    if not otp_service.consume_otp(db, resolved, data.code, data.purpose):
         raise HTTPException(status_code=401, detail="Invalid or expired code")
     _throttle_reset(f"otp:{identifier.lower()}")
     user = _find_user(db, identifier)
@@ -382,8 +447,9 @@ def forgot_password(data: OtpRequestIn, db: Session = Depends(get_db)):
 @router.post("/reset-password")
 def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
     """Set a new password using a valid reset OTP (code from email OR sms)."""
-    identifier = _verify_target(data.email, data.phone)
-    if not otp_service.consume_otp(db, identifier, data.code, "reset"):
+    identifier = _verify_target(data.email, data.phone, data.health_id)
+    resolved = _resolve_otp_identifier(db, identifier)
+    if not otp_service.consume_otp(db, resolved, data.code, "reset"):
         raise HTTPException(status_code=401, detail="Invalid or expired code")
     user = _find_user(db, identifier)
     if not user:

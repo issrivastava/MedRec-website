@@ -47,6 +47,7 @@ export default function PatientRecords() {
   const [docs, setDocs] = useState([])
   const [alerts, setAlerts] = useState([])
   const [summary, setSummary] = useState(null)
+  const [overall, setOverall] = useState(null)
   const [lang, setLang] = useState('en')
   const [kindFilter, setKindFilter] = useState({ category: '', report_kind: '' })
   const [sub, setSub] = useState('records') // records | vitals | vaccines | notes | chat | alerts | compare
@@ -77,6 +78,16 @@ export default function PatientRecords() {
       setSummary(data)
     } catch (e) {
       setSummary({ error: e.code === 'ECONNABORTED' ? 'AI is still working (cold start can take 1–2 min) — please try again in a minute.' : (e.response?.data?.detail || 'Could not generate summary.') })
+    }
+  }
+
+  const summarizeOverall = async () => {
+    setOverall({ loading: true })
+    try {
+      const { data } = await api.get(`/api/doctors/patients/${patientId}/overall-summary`, { params: { language: lang }, timeout: AI_TIMEOUT })
+      setOverall(data)
+    } catch (e) {
+      setOverall({ error: e.code === 'ECONNABORTED' ? 'AI is still working — try again in a minute.' : (e.response?.data?.detail || 'Could not generate overall summary.') })
     }
   }
 
@@ -111,7 +122,7 @@ export default function PatientRecords() {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-            <span className="pill pill-info">🪪 {shortId(info.user.id)}</span>
+            <span className="pill pill-info" title={info.user.id}>🪪 {info.user.health_id || shortId(info.user.id)}</span>
             <span className="pill pill-ok">🎂 {(() => { const a = calcAge(info.profile?.dob); return a != null ? `${a} yrs` : '—' })()}</span>
             {info.profile?.gender && <span className="pill pill-ok">👤 {info.profile.gender}</span>}
           </div>
@@ -137,6 +148,20 @@ export default function PatientRecords() {
       {sub === 'records' && (
         <section style={s.card}>
           <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Records ({docs.length})</h3>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <button onClick={summarizeOverall} disabled={!docs.length || overall?.loading}>
+              {overall?.loading ? '🧠 Reading…' : '🧠 AI overall summary'}
+            </button>
+            <small style={{ color: '#5d6b7a', alignSelf: 'center' }}>Reads all {docs.length} reports with AI (saved per-document summaries are reused).</small>
+          </div>
+          {overall && (
+            <div style={s.summary}>
+              <b>{overall.loading ? 'AI overall summary (working…)' : `AI overall summary (${overall.model_used || ''}, ${overall.documents_used || 0} docs)`}:</b>
+              {overall.loading ? <p>Generating…</p>
+                : overall.error ? <p style={{ color: '#b91c1c' }}>⚠️ {overall.error}</p>
+                  : <><p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p><SummaryDownloadButton title="MedRec overall summary" text={overall.summary_text} /></>}
+            </div>
+          )}
           <div className="toolbar-row">
             <select value={kindFilter.category} onChange={(e) => setKindFilter({ category: e.target.value, report_kind: '' })} style={s.input}>
               <option value="">All categories</option>

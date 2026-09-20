@@ -59,6 +59,7 @@ export default function FamilyManager({ onChange }) {
         <div key={m.id} style={s.row}>
           <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
             <b>{m.name}</b> {m.relation ? `(${m.relation})` : ''} {m.blood_group || ''}
+            {m.health_id && <span className="pill pill-info" style={{ marginLeft: 6 }}>🪪 {m.health_id}</span>}
             {(m.allergies || m.chronic_conditions) && (
               <small style={{ display: 'block', color: '#5d6b7a' }}>
                 {[m.allergies && `Allergies: ${m.allergies}`, m.chronic_conditions && `Chronic: ${m.chronic_conditions}`].filter(Boolean).join(' · ')}

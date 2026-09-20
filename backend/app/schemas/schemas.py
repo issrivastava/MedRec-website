@@ -19,6 +19,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     role: str
+    health_id: str | None = None
     phone: str | None = None
     avatar_url: str | None = None
     created_at: datetime
@@ -213,6 +214,7 @@ class FamilyMemberIn(BaseModel):
 class FamilyMemberOut(FamilyMemberIn):
     id: str
     owner_id: str
+    health_id: str | None = None
     created_at: datetime
 
     class Config:
@@ -277,7 +279,8 @@ class AvailabilityOut(BaseModel):
 
 
 class AppointmentIn(BaseModel):
-    doctor_id: str
+    doctor_id: str | None = None
+    patient_id: str | None = None
     family_member_id: str | None = None
     date: date
     start_time: str = Field(pattern=r"^\d{2}:\d{2}$")
@@ -423,6 +426,7 @@ class SiteReviewOut(BaseModel):
 class OtpRequestIn(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
+    health_id: str | None = None
     purpose: str = Field(default="login", pattern="^(login|reset|register)$")
 
 
@@ -438,6 +442,7 @@ class OtpRequestOut(BaseModel):
 class OtpVerifyIn(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
+    health_id: str | None = None
     code: str = Field(min_length=4, max_length=10)
     purpose: str = Field(default="login", pattern="^(login|reset|register)$")
 
@@ -445,6 +450,7 @@ class OtpVerifyIn(BaseModel):
 class ResetPasswordIn(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
+    health_id: str | None = None
     code: str = Field(min_length=4, max_length=10)
     new_password: str = Field(min_length=6, max_length=128)
 
@@ -901,6 +907,18 @@ class SoapIn(BaseModel):
 
 class InteractionIn(BaseModel):
     medicines: list[str] = Field(min_length=1, max_length=30)
+
+
+class RxSafetyIn(BaseModel):
+    """Pre-prescription safety screen: patient + proposed medicine names."""
+    patient_id: str
+    medicines: list[str] = Field(min_length=1, max_length=30)
+
+
+class NudgeIn(BaseModel):
+    """Recall/nudge one assigned patient (overdue follow-up, due visit...)."""
+    patient_id: str
+    message: str = Field(min_length=3, max_length=500)
 
 
 # ---- Structured clinical records (allergies / conditions / medications / surgeries) ----

@@ -18,18 +18,51 @@ def _out(db: Session, m: Message) -> dict:
             "body": m.body, "read": m.read, "created_at": m.created_at}
 
 
+def _resolve_user_id(db: Session, raw: str | None, expect_role: str) -> str | None:
+    """Accept UUID, AH-XXXX Patient ID, or email — return the user UUID.
+
+    Lets patients type a doctor's AH-XXXX (from Profile) instead of a UUID.
+    """
+    if not raw:
+        return None
+    v = raw.strip()
+    if not v:
+        return None
+    # AH-XXXX (case-insensitive)
+    hid = v.upper().replace(" ", "")
+    if hid.startswith("AH-"):
+        u = db.query(User).filter_by(health_id=hid).first()
+        if u and (expect_role == "any" or u.role == expect_role):
+            return u.id
+        return None
+    # email
+    if "@" in v:
+        u = db.query(User).filter_by(email=v.lower()).first()
+        if u and (expect_role == "any" or u.role == expect_role):
+            return u.id
+        return None
+    # assume UUID as-is (validated by assignment checks below)
+    return v
+
+
 def _pair(db: Session, user: User, data: MessageIn) -> tuple[str, str]:
     if user.role == "patient":
         if not data.doctor_id:
-            raise HTTPException(status_code=400, detail="doctor_id required")
-        if not is_assigned(db, data.doctor_id, user.id):
+            raise HTTPException(status_code=400, detail="doctor_id required (UUID, AH-XXXX or email)")
+        doctor_id = _resolve_user_id(db, data.doctor_id, "doctor")
+        if not doctor_id:
+            raise HTTPException(status_code=404, detail="Doctor not found for that ID/email")
+        if not is_assigned(db, doctor_id, user.id):
             raise HTTPException(status_code=403, detail="Doctor not assigned to you")
         # consent check: patient can always message; doctor needs chat consent to reply (checked on doctor send)
-        return data.doctor_id, user.id
+        return doctor_id, user.id
     if user.role == "doctor":
         if not data.patient_id:
-            raise HTTPException(status_code=400, detail="patient_id required")
-        if not is_assigned(db, user.id, data.patient_id):
+            raise HTTPException(status_code=400, detail="patient_id required (UUID, AH-XXXX or email)")
+        patient_id = _resolve_user_id(db, data.patient_id, "patient")
+        if not patient_id:
+            raise HTTPException(status_code=404, detail="Patient not found for that ID/email")
+        if not is_assigned(db, user.id, patient_id):
             raise HTTPException(status_code=403, detail="Patient not assigned to you")
         from app.api.routes.sharing import consent_allows
         if not consent_allows(db, data.patient_id, user.id, "chat"):
@@ -56,11 +89,17 @@ def list_messages(doctor_id: str | None = None, patient_id: str | None = None,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role == "patient":
         if not doctor_id:
-            raise HTTPException(status_code=400, detail="doctor_id required")
+            raise HTTPException(status_code=400, detail="doctor_id required (UUID, AH-XXXX or email)")
+        doctor_id = _resolve_user_id(db, doctor_id, "doctor")
+        if not doctor_id:
+            raise HTTPException(status_code=404, detail="Doctor not found for that ID/email")
         rows = db.query(Message).filter_by(doctor_id=doctor_id, patient_id=user.id).order_by(Message.created_at.asc()).limit(300).all()
     elif user.role == "doctor":
         if not patient_id:
-            raise HTTPException(status_code=400, detail="patient_id required")
+            raise HTTPException(status_code=400, detail="patient_id required (UUID, AH-XXXX or email)")
+        patient_id = _resolve_user_id(db, patient_id, "patient")
+        if not patient_id:
+            raise HTTPException(status_code=404, detail="Patient not found for that ID/email")
         rows = db.query(Message).filter_by(doctor_id=user.id, patient_id=patient_id).order_by(Message.created_at.asc()).limit(300).all()
     else:
         raise HTTPException(status_code=403, detail="Patients/doctors only")
@@ -89,6 +128,8 @@ def list_threads(db: Session = Depends(get_db), user: User = Depends(get_current
         if other_id not in seen:
             other = db.query(User).filter_by(id=other_id).first()
             seen[other_id] = {"other_id": other_id, "other_name": other.full_name if other else "?",
+                              "other_health_id": getattr(other, "health_id", None) if other else None,
+                              "other_email": other.email if other else None,
                               "last_body": m.body[:120], "last_at": m.created_at, "unread": 0}
     # unread counts
     for m in rows:

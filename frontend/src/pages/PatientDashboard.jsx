@@ -244,7 +244,7 @@ export default function PatientDashboard() {
     <DashboardLayout
       title={`👋 Welcome back${firstName ? `, ${firstName}` : ''}`}
       subtitle={`Your health command center — now viewing: ${activeName}. Switch profiles anytime.`}
-      items={items} active={tab} onSelect={setTab}>
+      items={items} active={tab} onSelect={setTab} sideTitle="🧍 PATIENT" tone="dash-patient">
 
       {msg && <p style={{ color: 'green' }}>{msg}</p>}
       <ProfileSwitcher />
@@ -534,7 +534,7 @@ export default function PatientDashboard() {
       {tab === 'chat' && (
         <section style={s.card} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">💬</span> Chat With Doctor</h3>
-          <ChatBox role="patient" />
+          <ChatBox role="patient" doctors={links} />
         </section>
       )}
 
@@ -557,7 +557,7 @@ export default function PatientDashboard() {
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-orange">🧍</span> My Info</h3>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-              <span className="pill pill-info" title={user?.id}>🪪 Patient ID: {shortId(user?.id)}</span>
+              <span className="pill pill-info" title={user?.id}>🪪 Patient ID: {user?.health_id || shortId(user?.id)}</span>
               <span className="pill pill-ok">🎂 Age: {(() => { const a = calcAge(profile?.dob); return a != null ? `${a} yrs` : 'set DOB ↓' })()}</span>
               {profile?.gender && <span className="pill pill-ok">👤 {profile.gender}</span>}
               {profile?.blood_group && <span className="pill pill-ok">🩸 {profile.blood_group}</span>}

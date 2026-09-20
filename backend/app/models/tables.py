@@ -30,6 +30,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    health_id: Mapped[str | None] = mapped_column(String(10), nullable=True, unique=True, index=True, default=None)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True, index=True, default=None)
     firebase_uid: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True, index=True, default=None)
     avatar_path: Mapped[str | None] = mapped_column(String(1024), nullable=True, default=None)
@@ -231,6 +232,7 @@ class FamilyMember(Base):
 
     id: Mapped[str] = _uuid_col()
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    health_id: Mapped[str | None] = mapped_column(String(10), nullable=True, unique=True, index=True, default=None)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     relation: Mapped[str | None] = mapped_column(String(100), nullable=True)
     dob: Mapped[date | None] = mapped_column(Date, nullable=True)

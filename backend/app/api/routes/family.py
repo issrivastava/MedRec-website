@@ -16,7 +16,9 @@ def list_members(db: Session = Depends(get_db), user: User = Depends(require_pat
 
 @router.post("", response_model=FamilyMemberOut, status_code=201)
 def add_member(data: FamilyMemberIn, db: Session = Depends(get_db), user: User = Depends(require_patient)):
+    from app.services.health_ids import ensure_health_id
     m = FamilyMember(owner_id=user.id, **data.model_dump())
+    ensure_health_id(db, m)
     db.add(m)
     db.commit()
     db.refresh(m)
