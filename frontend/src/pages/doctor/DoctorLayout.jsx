@@ -15,22 +15,25 @@ function Shell() {
   // patient detail /doctor/patients/:id counts as patients section
   const active = section === '' ? 'overview' : section
 
-  const items = [
-    { key: 'overview', label: 'Overview', icon: '🏠', to: '/doctor' },
+  // Minimal classic menu: core daily work first, everything else under More.
+  const core = [
+    { key: 'overview', label: 'Dashboard', icon: '🏠', to: '/doctor' },
     { key: 'patients', label: 'Patients', icon: '🧑‍🤝‍🧑', to: '/doctor/patients', badge: patients.length },
-    { key: 'practice', label: 'Practice (OPD)', icon: '🏥', to: '/doctor/practice' },
-    { key: 'schedule', label: 'Schedule', icon: '📅', to: '/doctor/schedule', badge: booked },
+    { key: 'schedule', label: 'Appointments', icon: '📅', to: '/doctor/schedule', badge: booked },
     { key: 'prescriptions', label: 'Prescriptions', icon: '✍️', to: '/doctor/prescriptions' },
-    { key: 'engage', label: 'Engage', icon: '📣', to: '/doctor/engage' },
-    { key: 'insights', label: 'Insights & AI', icon: '📊', to: '/doctor/insights' },
     { key: 'emergency', label: 'Emergency', icon: '🚨', to: '/doctor/emergency', badge: emgCount },
-    { key: 'risk', label: 'Risk Board', icon: '🔥', to: '/doctor/risk' },
+    { key: 'profile', label: 'My Profile', icon: '👤', to: '/doctor/profile' },
+  ]
+  const more = [
+    { key: 'practice', label: 'Practice (OPD)', icon: '🏥', to: '/doctor/practice' },
     { key: 'chat', label: 'Chat', icon: '💬', to: '/doctor/chat' },
     { key: 'care', label: 'Referrals & Care', icon: '🔁', to: '/doctor/care' },
+    { key: 'insights', label: 'Insights & AI', icon: '📊', to: '/doctor/insights' },
+    { key: 'engage', label: 'Engage', icon: '📣', to: '/doctor/engage' },
+    { key: 'risk', label: 'Risk Board', icon: '🔥', to: '/doctor/risk' },
     { key: 'growth', label: 'Growth', icon: '🌟', to: '/doctor/growth' },
     { key: 'safety', label: 'Safety', icon: '🛡️', to: '/doctor/safety' },
     { key: 'reviews', label: 'Ratings & Reviews', icon: '⭐', to: '/doctor/reviews' },
-    { key: 'profile', label: 'My Profile', icon: '👤', to: '/doctor/profile' },
     { key: 'medicines', label: 'Medicine Guide', icon: '💊', to: '/medicines' },
     { key: 'diseases', label: 'Disease Guide', icon: '🩺', to: '/diseases' },
     { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai' },
@@ -41,8 +44,8 @@ function Shell() {
   return (
     <div className="dash">
       <aside className="dash-side">
-        <div className="dash-side-title">DOCTOR MENU</div>
-        {items.map((it) => (
+        <div className="dash-side-title">DOCTOR</div>
+        {core.map((it) => (
           <NavLink
             key={it.key}
             to={it.to}
@@ -55,6 +58,20 @@ function Shell() {
             {it.badge > 0 && <span className="badge">{it.badge}</span>}
           </NavLink>
         ))}
+        <details className="dash-more">
+          <summary className="dash-nav-item"><span>⋯</span> More tools</summary>
+          {more.map((it) => (
+            <NavLink
+              key={it.key}
+              to={it.to}
+              className={({ isActive }) =>
+                `dash-nav-item${(isActive || active === it.key) ? ' active' : ''}`
+              }
+            >
+              <span>{it.icon}</span> {it.label}
+            </NavLink>
+          ))}
+        </details>
         <div className="dash-side-foot">
           <NavLink to="/doctor/profile" className="dash-nav-item">
             {pic
@@ -69,8 +86,8 @@ function Shell() {
       </aside>
       <div className="dash-main">
         <div className="dash-top">
-          <h1>🩺 Welcome back{firstName ? `, Dr. ${firstName}` : ''}</h1>
-          <p>Your practice at a glance — patients, schedule, prescriptions and lab alerts.</p>
+          <h1>Welcome back{firstName ? `, Dr. ${firstName}` : ''}</h1>
+          <p>Appointments, patients and reports — everything else lives under More tools.</p>
         </div>
         <Outlet />
       </div>

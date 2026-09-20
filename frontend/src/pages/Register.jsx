@@ -34,6 +34,7 @@ export default function Register() {
           return
         }
         try {
+          try { localStorage.setItem('medrec_last_role', form.role) } catch { /* ignore */ }
           go(await firebaseRegister({
             email: form.email.trim(),
             password: form.password,
@@ -48,7 +49,7 @@ export default function Register() {
           if (fe.code === 'auth/email-already-in-use') {
             setInfo('Email already exists — signing you in and linking…')
             try {
-              go(await firebaseLogin(form.email.trim(), form.password))
+              go(await firebaseLogin(form.email.trim(), form.password, form.role))
             } catch (se) {
               if (se.response?.status === 428) nav('/login') // pick patient/doctor there
               else throw se
@@ -57,6 +58,7 @@ export default function Register() {
         }
       } else {
         await register({ ...form, email: form.email.trim(), full_name: form.full_name.trim(), phone: form.phone.trim(), license_no: '' })
+        try { localStorage.setItem('medrec_last_role', form.role) } catch { /* ignore */ }
         nav('/login')
       }
     } catch (e) {

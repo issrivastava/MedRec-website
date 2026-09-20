@@ -8,6 +8,7 @@ from app.api.routes import hospitals
 from app.api.routes import assistant
 from app.api.routes import wellness, sharing, messages, care, compare
 from app.api.routes import practice
+from app.api.routes import clinical
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -38,3 +39,4 @@ api_router.include_router(messages.router, prefix="/messages", tags=["messages"]
 api_router.include_router(care.router, prefix="/care", tags=["care"])
 api_router.include_router(compare.router, prefix="/compare", tags=["compare"])
 api_router.include_router(practice.router, prefix="/practice", tags=["practice"])
+api_router.include_router(clinical.router, prefix="/clinical", tags=["clinical"])

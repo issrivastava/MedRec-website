@@ -21,21 +21,75 @@ export function avatarSrc(user) {
   return `${import.meta.env.VITE_API_URL || ''}${user.avatar_url}`
 }
 
-export async function downloadDocument(id, fallbackName = 'document') {
-  // Downloads are PDF-only: the backend renders any file type as a PDF.
-  const res = await api.get(`/api/documents/${id}/pdf`, { responseType: 'blob' })
-  const disposition = res.headers['content-disposition'] || ''
-  const match = disposition.match(/filename="?([^";]+)"?/)
-  let name = match ? match[1] : `${fallbackName}.pdf`
-  if (!name.toLowerCase().endsWith('.pdf')) name += '.pdf'
-  const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+function filenameFromDisposition(disposition, fallback) {
+  // Handles: attachment; filename="x.pdf" and RFC 5987 filename*=UTF-8''x.pdf
+  const d = disposition || ''
+  const star = d.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)
+  if (star) {
+    try {
+      const n = decodeURIComponent(star[1].trim().replace(/^"|"$/g, ''))
+      if (n) return n
+    } catch { /* fall through */ }
+  }
+  const match = d.match(/filename="?([^";]+)"?/)
+  if (match) return match[1]
+  return fallback
+}
+
+function sanitizePdfName(name, fallback = 'document') {
+  let n = (name || fallback || 'document').trim() || 'document'
+  n = n.replace(/[\\/:*?"<>|]/g, '-').slice(0, 120)
+  if (!n.toLowerCase().endsWith('.pdf')) n += '.pdf'
+  return n
+}
+
+async function throwIfBlobError(res) {
+  // Backend errors still arrive as blobs when responseType: 'blob'.
+  // Detect JSON-error blobs and rethrow as readable Errors.
+  const type = res.headers?.['content-type'] || ''
+  const data = res.data
+  const isBlob = data instanceof Blob
+  if (!isBlob) {
+    const detail = data?.detail || data?.message
+    if (detail) throw new Error(typeof detail === 'string' ? detail : detail.message || 'Download failed')
+    return
+  }
+  if (type.includes('application/json') || type.includes('text/json')) {
+    let text = ''
+    try { text = await data.text() } catch { /* ignore */ }
+    try {
+      const parsed = JSON.parse(text)
+      const detail = parsed?.detail || parsed?.message
+      throw new Error(typeof detail === 'string' ? detail : detail?.message || text.slice(0, 200) || 'Download failed')
+    } catch (e) {
+      if (e.message && !e.message.startsWith('{')) throw e
+      throw new Error(text.slice(0, 200) || 'Download failed')
+    }
+  }
+  if (data.size === 0) throw new Error('Server returned an empty file — try again.')
+}
+
+function triggerBlobDownload(blob, filename, mime = 'application/pdf') {
+  const file = blob instanceof Blob ? blob : new Blob([blob], { type: mime })
+  const url = URL.createObjectURL(file)
   const a = document.createElement('a')
   a.href = url
-  a.download = name
+  a.download = filename
+  // Firefox requires the link to be in the DOM.
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
+  return filename
+}
+
+export async function downloadDocument(id, fallbackName = 'document') {
+  // Downloads are PDF-only: the backend renders any file type as a PDF.
+  const res = await api.get(`/api/documents/${id}/pdf`, { responseType: 'blob' })
+  await throwIfBlobError(res)
+  const raw = filenameFromDisposition(res.headers['content-disposition'], `${fallbackName}.pdf`)
+  const name = sanitizePdfName(raw, fallbackName)
+  return triggerBlobDownload(res.data, name, 'application/pdf')
 }
 
 export async function openDocumentInline(id) {
@@ -52,14 +106,42 @@ export async function downloadExportPdf(patientId = null) {
     params: patientId ? { patient_id: patientId } : {},
     responseType: 'blob',
   })
-  const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
+  await throwIfBlobError(res)
+  const raw = filenameFromDisposition(res.headers['content-disposition'], 'medrec-record.pdf')
+  const name = sanitizePdfName(raw, 'medrec-record')
+  return triggerBlobDownload(res.data, name, 'application/pdf')
+}
+
+export async function downloadBlobResponse(res, fallbackName = 'download.pdf') {
+  await throwIfBlobError(res)
+  const raw = filenameFromDisposition(res.headers?.['content-disposition'], fallbackName)
+  const name = sanitizePdfName(raw, fallbackName.replace(/\.pdf$/i, ''))
+  return triggerBlobDownload(res.data, name, 'application/pdf')
+}
+
+export function downloadTextFile(filename, text, mime = 'text/plain;charset=utf-8') {
+  const blob = new Blob([text || ''], { type: mime })
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'medrec-record.pdf'
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
+  return filename
+}
+
+export function friendlyDownloadError(err, fallback = 'Download failed') {
+  if (!err.response && (err.code === 'ERR_NETWORK' || err.message === 'Network Error')) {
+    return 'Cannot reach the server — is the backend running on http://localhost:8000?'
+  }
+  if (err.code === 'ECONNABORTED' || String(err.message || '').toLowerCase().includes('timeout')) {
+    return 'Server took too long — the PDF may be large. Wait and retry.'
+  }
+  const d = err.response?.data?.detail
+  if (d) return typeof d === 'string' ? d : d.message || fallback
+  return err.message || fallback
 }
 
 export default api

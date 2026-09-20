@@ -463,6 +463,10 @@ def delete_my_account(
         (T.SiteReview, "user_id"),
         (T.EmergencyAlert, "patient_id"),
         (T.AiSummary, "patient_id"),
+        (T.AllergyRecord, "owner_id"),
+        (T.MedicalCondition, "owner_id"),
+        (T.MedicationRecord, "owner_id"),
+        (T.SurgicalRecord, "owner_id"),
     ):
         try:
             db.query(model).filter(getattr(model, col) == user_id).delete(synchronize_session=False)

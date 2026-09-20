@@ -21,6 +21,9 @@ const AuthContext = createContext(null)
 function saveSession(data) {
   localStorage.setItem('medrec_token', data.access_token)
   localStorage.setItem('medrec_user', JSON.stringify(data.user))
+  try {
+    if (data.user?.role) localStorage.setItem('medrec_last_role', data.user.role)
+  } catch { /* ignore */ }
 }
 
 export function AuthProvider({ children }) {
@@ -81,10 +84,12 @@ export function AuthProvider({ children }) {
   }
 
   // ---- Firebase login options ----
-  const firebaseLogin = async (email, password) => {
+  // role is passed through so FIRST-TIME doctors are created as doctors
+  // immediately (no 428 bounce that defaults to patient).
+  const firebaseLogin = async (email, password, role = null) => {
     const { user: fb } = await signInWithEmailAndPassword(auth, email, password)
     setFirebaseUser(fb)
-    return exchange(fb)
+    return exchange(fb, role)
   }
 
   const firebaseRegister = async ({ email, password, fullName, role, phone, specialization, hospital }) => {
@@ -94,11 +99,11 @@ export function AuthProvider({ children }) {
     return exchange(fb, role, { full_name: fullName, phone, specialization, hospital })
   }
 
-  const googleLogin = async () => {
+  const googleLogin = async (role = null) => {
     try {
       const { user: fb } = await signInWithPopup(auth, googleProvider)
       setFirebaseUser(fb)
-      return exchange(fb)
+      return exchange(fb, role)
     } catch (e) {
       // Popup blocked / unsupported (e.g. some mobile browsers): fall back to
       // full-page redirect — Firebase returns to this app afterwards.

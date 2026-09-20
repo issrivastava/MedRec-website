@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import api, { AI_TIMEOUT, downloadDocument, downloadExportPdf, openDocumentInline } from '../api'
+import api, { AI_TIMEOUT } from '../api'
+import { DocumentPdfButton, ExportRecordButton, SummaryDownloadButton } from '../components/PdfButtons'
 import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
@@ -11,6 +12,7 @@ import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import FamilyManager from '../components/FamilyManager'
 import MyClinicalHistory from '../components/MyClinicalHistory'
+import StructuredRecords from '../components/StructuredRecords'
 import ReportAnalytics from '../components/ReportAnalytics'
 import { kindsForCategory, kindLabel, kindIcon } from '../reportKinds'
 import { AlertsPanel } from '../components/Alerts'
@@ -276,9 +278,9 @@ export default function PatientDashboard() {
                 <div key={a.id} style={s.row}><span><b>{a.date}</b> at {a.start_time} — Dr. {a.doctor_name}</span><span className="pill pill-ok">{a.status}</span></div>
               ))}
               {!upcoming.length && <div className="empty">No upcoming visits — <button onClick={() => setTab('appts')} style={s.linkBtn}>book one</button>.</div>}
-              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <button onClick={() => setTab('records')} style={s.primaryBtn}>＋ Upload report</button>
-                <button onClick={() => downloadExportPdf()}>⬇ Export PDF</button>
+                <ExportRecordButton />
                 <Link to="/timeline"><button>📈 Timeline</button></Link>
               </div>
             </section>
@@ -385,21 +387,24 @@ export default function PatientDashboard() {
                 {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select></label>
               <div style={{ marginTop: 8 }}><button onClick={loadOverall} style={s.primaryBtn}>Generate overall summary</button></div>
-              {overall && <div style={s.summary}><b>Overall ({overall.model_used}, {overall.documents_used} docs):</b><VoiceReader text={overall.summary_text} /><p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p></div>}
+              {overall && <div style={s.summary}><b>Overall ({overall.model_used}, {overall.documents_used} docs):</b><VoiceReader text={overall.summary_text} /><p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p><SummaryDownloadButton title="MedRec overall summary" text={overall.summary_text} /></div>}
               {summary && (
                 <div style={s.summary}>
                   <b>{summary.loading ? 'AI report (working…)' : `AI report (${summary.model_used || ''}${summary.model_used === 'offline-extractive-fallback' ? ' — offline, start Ollama for full AI' : ''}, ${summary.language || lang})`}:</b>
                   {!summary.loading && summary.summary_text && <VoiceReader text={summary.summary_text} />}
                   {summary.loading ? <p>Generating with Ollama… (cold start can take 1–2 min — please wait, don't click again)</p>
                     : summary.error ? <p style={{ color: '#b91c1c' }}>⚠️ {summary.error}</p>
-                      : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
+                      : <><p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p><SummaryDownloadButton title={`MedRec summary`} text={summary.summary_text} /></>}
                 </div>
               )}
             </section>
           </div>
 
           <section style={s.card}>
-            <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Documents — showing {filtered.length} of {docs.length}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+              <h3 className="sec-head" style={{ margin: 0 }}><span className="tile t-amber">🗂️</span> Documents — showing {filtered.length} of {docs.length}</h3>
+              <ExportRecordButton label="⬇ Export record PDF" />
+            </div>
             <div className="toolbar-row">
               <input placeholder="Full-text search — title, hospital, doctor, OCR text…" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} style={s.input} />
               <input placeholder="Filter by doctor" value={filter.doctor_name} onChange={(e) => setFilter({ ...filter, doctor_name: e.target.value })} style={s.input} />
@@ -448,9 +453,7 @@ export default function PatientDashboard() {
                       <div className="doc-actions">
                         <button onClick={() => summarize(d.id)} disabled={(d.file_size || 0) === 0} title={(d.file_size || 0) === 0 ? 'Empty file — re-upload first' : 'Generate AI summary'}>AI summary</button>
                         <DocAIActions doc={d} onApplied={load} />
-                        {(d.file_mimetype || '').startsWith('video/')
-                          ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
-                          : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
+                        <DocumentPdfButton doc={d} />
                         <button onClick={async () => { await api.delete(`/api/documents/${d.id}`); load() }}>Delete</button>
                       </div>
                     </div>
@@ -588,6 +591,7 @@ export default function PatientDashboard() {
             lifestyle and heredity. Your assigned doctors read this when treating you.
           </p>
           <MyClinicalHistory />
+          <StructuredRecords />
         </section>
       )}
     </DashboardLayout>

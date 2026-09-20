@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import api, { AI_TIMEOUT, downloadDocument, downloadExportPdf, openDocumentInline } from '../../api'
+import api, { AI_TIMEOUT } from '../../api'
+import { DocumentPdfButton, ExportRecordButton, SummaryDownloadButton } from '../../components/PdfButtons'
 import { LANGS } from '../../langs'
 import { Avatar } from '../../components/People'
 import { kindsForCategory, kindLabel, kindIcon } from '../../reportKinds'
@@ -102,8 +103,8 @@ export default function PatientRecords() {
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
             <Avatar seed={info.user.id} name={info.user.full_name} size={56} />
             <p style={{ margin: 0 }}>Email: {info.user.email}<br />🩸 {info.profile?.blood_group || '—'} | 🎂 {info.profile?.dob || '—'}</p>
-            <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button onClick={() => downloadExportPdf(patientId)}>⬇ Export PDF</button>
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <ExportRecordButton patientId={patientId} label="⬇ Export PDF" />
               <label style={{ fontSize: 13 }}>AI lang: <select value={lang} onChange={(e) => setLang(e.target.value)} style={s.input}>
                 {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select></label>
@@ -156,12 +157,10 @@ export default function PatientRecords() {
               <div className="grow">
                 <b>{d.title}</b> <span className="pill pill-info">{kindLabel(d.report_kind) || d.doc_type}</span>
                 <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                   <button onClick={() => summarize(d.id)} disabled={(d.file_size || 0) === 0}>AI summary</button>
                   <DocAIActions doc={d} canApply={false} />
-                  {(d.file_mimetype || '').startsWith('video')
-                    ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
-                    : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
+                  <DocumentPdfButton doc={d} />
                 </div>
               </div>
             </div>
@@ -173,7 +172,7 @@ export default function PatientRecords() {
               {!summary.loading && summary.summary_text && <VoiceReader text={summary.summary_text} />}
               {summary.loading ? <p>Generating… (cold start can take 1–2 min — please wait, don't click again)</p>
                 : summary.error ? <p style={{ color: '#b91c1c' }}>⚠️ {summary.error}</p>
-                  : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
+                  : <><p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p><SummaryDownloadButton title="MedRec summary" text={summary.summary_text} /></>}
             </div>
           )}
         </section>

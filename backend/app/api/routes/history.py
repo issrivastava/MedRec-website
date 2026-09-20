@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_patient, is_assigned
 from app.db.session import get_db
-from app.models.tables import FamilyHistoryEntry, FamilyMember, PatientProfile, User
+from app.models.tables import (
+    FamilyHistoryEntry, FamilyMember, PatientProfile, User,
+    AllergyRecord, MedicalCondition, MedicationRecord, SurgicalRecord,
+)
 from app.schemas.schemas import FamilyHistoryIn, FamilyHistoryOut, FamilyMemberOut
 
 router = APIRouter()
@@ -131,5 +134,9 @@ def clinical_summary(
         "self": {"has_profile": prof is not None, "chronic": (prof.chronic_conditions if prof else None)},
         "family_members": len(members),
         "family_history_entries": total_entries,
+        "allergies": db.query(AllergyRecord).filter_by(owner_id=owner).count(),
+        "conditions": db.query(MedicalCondition).filter_by(owner_id=owner).count(),
+        "medications": db.query(MedicationRecord).filter_by(owner_id=owner).count(),
+        "surgeries": db.query(SurgicalRecord).filter_by(owner_id=owner).count(),
         "members": [{"id": m.id, "name": m.name, "relation": m.relation} for m in members],
     }

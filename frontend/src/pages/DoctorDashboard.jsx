@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import api, { downloadDocument, downloadExportPdf, openDocumentInline } from '../api'
+import api from '../api'
+import { DocumentPdfButton, ExportRecordButton, SummaryDownloadButton } from '../components/PdfButtons'
 import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
@@ -223,7 +224,7 @@ export default function DoctorDashboard() {
             <label style={{ marginLeft: 12 }}>AI language: <select value={lang} onChange={(e) => setLang(e.target.value)} style={s.input}>
               {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
             </select></label>
-            {selected && <button onClick={() => downloadExportPdf(selected)} style={{ marginLeft: 8 }}>⬇ Export patient PDF</button>}
+            {selected && <span style={{ marginLeft: 8, display: 'inline-block', verticalAlign: 'middle' }}><ExportRecordButton patientId={selected} label="⬇ Export patient PDF" /></span>}
           </section>
 
           {info && (
@@ -273,12 +274,10 @@ export default function DoctorDashboard() {
                           ? <span className="pill pill-ok" style={{ marginLeft: 6 }}>📝 text ready</span>
                           : <span className="pill" style={{ marginLeft: 6, background: '#fef3c7' }}>🖼️ image-only</span>}
                       <div style={{ fontSize: 13, color: '#5d6b7a' }}>{d.visit_date || 'Undated'} — {d.doctor_name || '—'}</div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                         <button onClick={() => summarize(d.id)} disabled={(d.file_size || 0) === 0}>AI summary</button>
                         <DocAIActions doc={d} canApply={false} />
-                        {(d.file_mimetype || '').startsWith('video')
-                          ? <button onClick={() => openDocumentInline(d.id)}>▶ Play</button>
-                          : <button onClick={() => downloadDocument(d.id, d.title)}>⬇ PDF</button>}
+                        <DocumentPdfButton doc={d} />
                       </div>
                     </div>
                   </div>
@@ -290,7 +289,7 @@ export default function DoctorDashboard() {
                     {!summary.loading && summary.summary_text && <VoiceReader text={summary.summary_text} />}
                     {summary.loading ? <p>Generating… (~10–30s first run)</p>
                       : summary.error ? <p style={{ color: '#b91c1c' }}>⚠️ {summary.error}</p>
-                        : <p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p>}
+                        : <><p style={{ whiteSpace: 'pre-wrap' }}>{summary.summary_text}</p><SummaryDownloadButton title="MedRec summary" text={summary.summary_text} /></>}
                   </div>
                 )}
               </section>

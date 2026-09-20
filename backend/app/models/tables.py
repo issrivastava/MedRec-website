@@ -449,7 +449,7 @@ class EmergencyAlert(Base):
 # ---------------------------------------------------------------------------
 
 class Vital(Base):
-    """Patient vitals time-series (BP, sugar, weight, BMI, temp, SpO2, pulse)."""
+    """Patient vitals time-series (BP, sugar, weight, height, BMI, temp, SpO2, pulse)."""
     __tablename__ = "vitals"
 
     id: Mapped[str] = _uuid_col()
@@ -457,7 +457,7 @@ class Vital(Base):
     family_member_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    vital_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # bp|sugar|weight|bmi|temp|spo2|pulse
+    vital_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # bp|sugar|weight|height|bmi|temp|spo2|pulse
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
     systolic: Mapped[float | None] = mapped_column(Float, nullable=True)
     diastolic: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -691,4 +691,84 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # view_records|download|prescribe|refer|broadcast|...
     patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Structured clinical records: normalized per-item tables so allergies,
+# conditions, medications and surgeries are queryable instead of free text.
+# ---------------------------------------------------------------------------
+
+class AllergyRecord(Base):
+    """One allergy per row: allergen + reaction + severity + status."""
+    __tablename__ = "allergy_records"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    allergen: Mapped[str] = mapped_column(String(255), nullable=False, index=True)  # e.g. penicillin, peanuts
+    reaction: Mapped[str | None] = mapped_column(String(500), nullable=True)  # e.g. rash, breathlessness
+    severity: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)  # mild|moderate|severe
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active|resolved
+    diagnosed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class MedicalCondition(Base):
+    """One condition per row: chronic or past illness with status timeline."""
+    __tablename__ = "medical_conditions"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    condition_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)  # e.g. hypertension
+    kind: Mapped[str] = mapped_column(String(20), default="chronic", index=True)  # chronic|past
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active|managed|resolved
+    severity: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mild|moderate|severe
+    diagnosed_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    resolved_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class MedicationRecord(Base):
+    """Current/past medication timeline: one row per medicine course."""
+    __tablename__ = "medication_records"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    medicine_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    dosage: Mapped[str | None] = mapped_column(String(255), nullable=True)  # e.g. 500mg
+    frequency: Mapped[str | None] = mapped_column(String(255), nullable=True)  # e.g. twice daily
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="ongoing", index=True)  # ongoing|stopped|completed
+    prescribed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SurgicalRecord(Base):
+    """One surgery/procedure per row with date, hospital and surgeon."""
+    __tablename__ = "surgical_records"
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_member_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("family_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    procedure_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    surgery_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    hospital: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    surgeon: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    outcome: Mapped[str | None] = mapped_column(String(100), nullable=True)  # recovered|follow-up|complications
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

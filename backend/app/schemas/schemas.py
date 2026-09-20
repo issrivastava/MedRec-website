@@ -549,7 +549,7 @@ class PrescriptionTrendOut(BaseModel):
 
 # ---- Vitals ----
 class VitalIn(BaseModel):
-    vital_type: str = Field(pattern="^(bp|sugar|weight|bmi|temp|spo2|pulse)$")
+    vital_type: str = Field(pattern="^(bp|sugar|weight|height|bmi|temp|spo2|pulse)$")
     value: float | None = None
     systolic: float | None = None
     diastolic: float | None = None
@@ -901,3 +901,83 @@ class SoapIn(BaseModel):
 
 class InteractionIn(BaseModel):
     medicines: list[str] = Field(min_length=1, max_length=30)
+
+
+# ---- Structured clinical records (allergies / conditions / medications / surgeries) ----
+class AllergyIn(BaseModel):
+    allergen: str = Field(min_length=2, max_length=255)
+    reaction: str | None = Field(default=None, max_length=500)
+    severity: str | None = Field(default=None, pattern="^(mild|moderate|severe)$")
+    status: str = Field(default="active", pattern="^(active|resolved)$")
+    diagnosed_date: date | None = None
+    notes: str | None = None
+    family_member_id: str | None = None
+
+
+class AllergyOut(AllergyIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ConditionIn(BaseModel):
+    condition_name: str = Field(min_length=2, max_length=255)
+    kind: str = Field(default="chronic", pattern="^(chronic|past)$")
+    status: str = Field(default="active", pattern="^(active|managed|resolved)$")
+    severity: str | None = Field(default=None, pattern="^(mild|moderate|severe)$")
+    diagnosed_date: date | None = None
+    resolved_date: date | None = None
+    notes: str | None = None
+    family_member_id: str | None = None
+
+
+class ConditionOut(ConditionIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MedicationIn(BaseModel):
+    medicine_name: str = Field(min_length=2, max_length=255)
+    dosage: str | None = Field(default=None, max_length=255)
+    frequency: str | None = Field(default=None, max_length=255)
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str = Field(default="ongoing", pattern="^(ongoing|stopped|completed)$")
+    prescribed_by: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+    family_member_id: str | None = None
+
+
+class MedicationOut(MedicationIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SurgeryIn(BaseModel):
+    procedure_name: str = Field(min_length=2, max_length=255)
+    surgery_date: date | None = None
+    hospital: str | None = Field(default=None, max_length=255)
+    surgeon: str | None = Field(default=None, max_length=255)
+    outcome: str | None = Field(default=None, pattern="^(recovered|follow-up|complications)$")
+    notes: str | None = None
+    family_member_id: str | None = None
+
+
+class SurgeryOut(SurgeryIn):
+    id: str
+    owner_id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

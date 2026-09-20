@@ -5,27 +5,42 @@ import AuthSplit from '../components/AuthSplit'
 
 function friendlyError(e, fallback) {
   if (!e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error' || String(e.message || '').toLowerCase().includes('network'))) {
-    return 'Cannot reach the server — is the backend running on http://localhost:8000? (If it just restarted, wait 10s and retry.)'
+    return 'Backend is not reachable at http://localhost:8000. Start it: cd backend → venv\\Scripts\\activate → uvicorn app.main:app --reload --port 8000. Then open http://localhost:8000/docs to confirm, wait 10s and retry.'
   }
   if (e.code === 'ECONNABORTED' || String(e.message || '').toLowerCase().includes('timeout')) {
     return 'Server took too long — it may be waking up (Ollama cold start). Wait 30s and retry.'
   }
   if (e.code === 'auth/network-request-failed') return 'Cannot reach Google servers — check your internet and retry.'
+  if (e.code === 'auth/invalid-credential') {
+    return 'Wrong email or password for this Firebase project — or this account was created with a different sign-in method (Google vs email vs local OTP). Try Google, reset the password, or use “OTP / local login instead”.'
+  }
+  const status = e.response?.status
   const d = e.response?.data?.detail
-  if (!d) return e.message || fallback
-  if (typeof d === 'object') return d.message || fallback
+  const withStatus = (msg) => (status ? `Backend said (${status}): ${msg}` : msg)
+  if (!d) return withStatus(e.message || fallback)
+  if (typeof d === 'object') return withStatus(d.message || fallback)
   const low = String(d).toLowerCase()
   if (low.includes('too early') || low.includes('before it became valid') || (low.includes('clock') && low.includes('token'))) {
     return 'Server clock was a moment behind Google — wait 3 seconds and retry. (If it keeps happening, restart the backend to pick up the 30s skew tolerance and sync the backend clock.)'
   }
-  if (d === 'role_required' || String(d).includes('role_required')) return 'Please pick patient or doctor below.'
-  return String(d)
+  if (d === 'role_required' || String(d).includes('role_required')) return 'First sign-in with this account — pick patient or doctor below, then Continue.'
+  if (status === 503 && low.includes('firebase')) {
+    return withStatus('Firebase is not configured on the backend — set FIREBASE_CREDENTIALS_PATH in backend/.env and restart the backend. Until then use “OTP / local login”.')
+  }
+  if (status === 403 && low.includes('forbidden')) {
+    return withStatus('This account has a different role. Doctors must sign in with a doctor account — a patient account cannot open /doctor (and vice versa).')
+  }
+  return withStatus(String(d))
 }
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('patient')
+  // Remember last-used role so doctors don't get defaulted to patient.
+  const [role, setRole] = useState(() => {
+    try { return localStorage.getItem('medrec_last_role') === 'doctor' ? 'doctor' : 'patient' } catch { return 'patient' }
+  })
+  const [backendUp, setBackendUp] = useState(null) // null=checking, true/false
   const [showLocal, setShowLocal] = useState(false)
   const [mode, setMode] = useState('password') // password | otp
   const [otp, setOtp] = useState('')
@@ -48,18 +63,35 @@ export default function Login() {
     } catch { /* ignore */ }
   }, [])
 
+  // Backend health badge: distinguishes "backend down" from "wrong credentials".
+  useEffect(() => {
+    let cancelled = false
+    const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+    if (!base) { setBackendUp(null); return }
+    fetch(`${base}/health`, { signal: AbortSignal.timeout(5000) })
+      .then((r) => { if (!cancelled) setBackendUp(r.ok) })
+      .catch(() => { if (!cancelled) setBackendUp(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const pickRole = (r) => {
+    setRole(r)
+    try { localStorage.setItem('medrec_last_role', r) } catch { /* ignore */ }
+  }
+
   const submitFirebase = async (e) => {
     e.preventDefault()
     setErr('')
     try {
-      go(await firebaseLogin(email, password))
+      // Pass the selected role so first-time doctors are created as doctors.
+      go(await firebaseLogin(email, password, role))
     } catch (e) { setErr(friendlyError(e, 'Firebase login failed')) }
   }
 
   const submitGoogle = async () => {
     setErr(''); setInfo('')
     try {
-      go(await googleLogin())
+      go(await googleLogin(role))
     } catch (e) {
       const msg = String(e.code || e.message || '')
       if (msg.includes('popup-blocked') || msg.includes('popup')) setErr('Google popup was blocked — allow popups and retry.')
@@ -136,22 +168,38 @@ export default function Login() {
       'Your doctor reviews your history in one click',
     ]}>
       <h2 style={{ marginTop: 0 }}>Login to MedRec</h2>
+      <p style={s.backendBadge}>
+        {backendUp === null ? 'Checking backend…' : backendUp
+          ? '● Backend online'
+          : '○ Backend offline — start it: backend → uvicorn app.main:app --reload --port 8000'}
+      </p>
 
       {needsRole ? (
         <div style={s.roleBox}>
           <h3>One last step — who are you?</h3>
-          <p>First Firebase sign-in needs an account type.</p>
-          <select value={role} onChange={(e) => setRole(e.target.value)} style={s.input}>
+          <p>First sign-in with this account needs an account type. <b>Doctors must pick Doctor here</b>, or the account opens as a patient.</p>
+          <select value={role} onChange={(e) => pickRole(e.target.value)} style={s.input}>
             <option value="patient">Patient</option>
             <option value="doctor">Doctor</option>
           </select>
-          <button onClick={submitRole} style={s.btn}>Continue</button>
+          <button onClick={submitRole} style={s.btn}>Continue as {role}</button>
           {err && <p style={{ color: 'red' }}>{err}</p>}
         </div>
       ) : firebaseConfigured && !showLocal ? (
         <>
+          <label style={s.roleLabel}>I am a:
+            <select value={role} onChange={(e) => pickRole(e.target.value)} style={s.input}>
+              <option value="patient">Patient</option>
+              <option value="doctor">Doctor</option>
+            </select>
+          </label>
+          <p style={s.roleHint}>
+            {role === 'doctor'
+              ? 'Doctor login uses the same form. First-time doctors: pick Doctor above before continuing.'
+              : 'After login, doctors land on /doctor and patients on /patient.'}
+          </p>
           <button onClick={submitGoogle} style={s.googleBtn}>
-            <span style={s.gLogo}>G</span> Continue with Google
+            <span style={s.gLogo}>G</span> Continue with Google{role === 'doctor' ? ' as Doctor' : ''}
           </button>
           <div style={s.divider}><span>or with email</span></div>
           {linkStep === 'complete' ? (
@@ -176,7 +224,7 @@ export default function Login() {
               <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={s.input} />
               {err && <p style={{ color: 'red' }}>{err}</p>}
               {info && <p style={{ color: 'green' }}>{info}</p>}
-              <button type="submit" style={s.btn}>Login</button>
+              <button type="submit" style={s.btn}>Login as {role}</button>
               <button type="button" onClick={sendLink} style={s.linkBtn}>Email me a password-free sign-in link instead</button>
             </form>
           )}
@@ -256,4 +304,7 @@ const s = {
   tab: { flex: 1, padding: 8, cursor: 'pointer', background: '#f5f5f4', border: '1px solid #e7e5e4' },
   tabActive: { flex: 1, padding: 8, cursor: 'pointer', background: '#1e3a5f', color: '#fff', border: '1px solid #1e3a5f', fontWeight: 700 },
   rowBetween: { display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
+  backendBadge: { fontSize: 13, color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '6px 10px', margin: '0 0 12px' },
+  roleLabel: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 },
+  roleHint: { fontSize: 13, color: '#64748b', margin: '0 0 10px' },
 }

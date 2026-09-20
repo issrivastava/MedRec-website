@@ -11,7 +11,7 @@ from app.schemas.schemas import VitalIn, VitalOut, VaccinationIn, VaccinationOut
 router = APIRouter()
 
 VITAL_UNITS = {
-    "bp": "mmHg", "sugar": "mg/dL", "weight": "kg", "bmi": "kg/m2",
+    "bp": "mmHg", "sugar": "mg/dL", "weight": "kg", "height": "cm", "bmi": "kg/m2",
     "temp": "°F", "spo2": "%", "pulse": "bpm",
 }
 
@@ -51,6 +51,36 @@ def add_vital(data: VitalIn, patient_id: str | None = None, db: Session = Depend
               notes=data.notes, measured_at=data.measured_at or date.today(),
               family_member_id=data.family_member_id)
     db.add(v)
+    db.flush()
+    # Auto-BMI: a new height or weight reading + the latest counterpart
+    # produces/updates a BMI point so the BMI graph stays in sync with
+    # zero extra taps.
+    try:
+        if data.vital_type in ("weight", "height"):
+            member = data.family_member_id
+            def _latest(vtype: str):
+                q = db.query(Vital).filter_by(owner_id=user.id, vital_type=vtype)
+                q = q.filter_by(family_member_id=member) if member else q.filter(Vital.family_member_id.is_(None))
+                return q.order_by(Vital.measured_at.desc().nullslast(),
+                                  Vital.created_at.desc()).first()
+            if data.vital_type == "weight":
+                weight = data.value
+                h = _latest("height")
+                # _latest("weight") would return the row just flushed; use
+                # previous height only.
+                height = h.value if h and h.id != v.id else None
+            else:
+                height = data.value
+                w = _latest("weight")
+                weight = w.value if w and w.id != v.id else None
+            if weight and height and height > 0 and weight > 0:
+                bmi = round(weight / ((height / 100) ** 2), 1)
+                if 10 <= bmi <= 80:  # sanity: ignore typos like 5 cm / 900 kg
+                    db.add(Vital(owner_id=user.id, vital_type="bmi", value=bmi,
+                                 unit=VITAL_UNITS["bmi"], notes="auto from height+weight",
+                                 measured_at=v.measured_at, family_member_id=member))
+    except Exception:
+        pass
     db.commit()
     db.refresh(v)
     return v
@@ -93,6 +123,14 @@ def vitals_summary(family_member_id: str | None = None, patient_id: str | None =
         hints.append("Sugar looks high (≥200 mg/dL) — consult your doctor.")
     if latest.get("spo2") and (latest["spo2"].get("value") or 100) < 94:
         hints.append("SpO2 below 94% — seek medical advice promptly.")
+    bmi_val = (latest.get("bmi") or {}).get("value")
+    if bmi_val:
+        if bmi_val < 18.5:
+            hints.append(f"BMI {bmi_val} is underweight — discuss nutrition with your doctor.")
+        elif bmi_val >= 30:
+            hints.append(f"BMI {bmi_val} is in the obese range — discuss a plan with your doctor.")
+        elif bmi_val >= 25:
+            hints.append(f"BMI {bmi_val} is overweight — small diet/activity steps help.")
     return {"patient_id": pid, "latest": latest, "trends": trends, "hints": hints}
 
 
