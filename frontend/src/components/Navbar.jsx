@@ -55,8 +55,7 @@ export default function Navbar() {
             </>
           ) : (
             <>
-              <Link to="/login" style={styles.link}>Login</Link>
-              <Link to="/register" style={styles.registerBtn}>Register</Link>
+              <Link to="/login" style={styles.registerBtn}>Login / Sign up</Link>
             </>
           )}
         </div>

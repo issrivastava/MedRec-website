@@ -520,7 +520,7 @@ class Consent(Base):
 
 
 class Message(Base):
-    """Secure doctor-patient chat message."""
+    """Secure doctor-patient chat message (ID-linked pair + priority/category/attachments)."""
     __tablename__ = "messages"
 
     id: Mapped[str] = _uuid_col()
@@ -528,7 +528,16 @@ class Message(Base):
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     sender_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # normal|urgent — urgent fans out via email/SMS too
+    priority: Mapped[str] = mapped_column(String(10), default="normal", index=True)
+    # general|query|followup|prescription|report|appointment|video|system
+    category: Mapped[str] = mapped_column(String(20), default="general", index=True)
+    attachment_document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True, default=None)
+    # SOS keyword auto-detection (chest pain, emergency, bleeding...)
+    sos_detected: Mapped[bool] = mapped_column(Boolean, default=False)
     read: Mapped[bool] = mapped_column(Boolean, default=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 

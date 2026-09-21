@@ -7,13 +7,14 @@ export default function Engage() {
   return (
     <div className="rise">
       <div className="toolbar-row" style={{ marginBottom: 12 }}>
-        {[['groups', '👥 Patient Groups'], ['recall', '📞 Recall'], ['broadcast', '📣 Broadcast'], ['adherence', '✅ Adherence']].map(([k, l]) => (
+        {[['groups', '👥 Patient Groups'], ['recall', '📞 Recall'], ['broadcast', '📣 Broadcast'], ['reminders', '⏰ Reminders'], ['adherence', '✅ Adherence']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={tab === k ? s.tabActive : s.tab}>{l}</button>
         ))}
       </div>
       {tab === 'groups' && <Groups />}
       {tab === 'recall' && <Recall />}
       {tab === 'broadcast' && <Broadcast />}
+      {tab === 'reminders' && <Reminders />}
       {tab === 'adherence' && <Adherence />}
     </div>
   )
@@ -139,6 +140,35 @@ function Recall() {
         </div>
       ))}
       {!data.results.length && <div className="empty">Nothing overdue — all follow-ups on track 🎉</div>}
+    </section>
+  )
+}
+
+function Reminders() {
+  const [days, setDays] = useState(1)
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+  const send = async (e) => {
+    e.preventDefault()
+    setBusy(true); setMsg('')
+    try {
+      const { data } = await api.post('/api/practice/reminders', null, { params: { days_ahead: days } })
+      setMsg(`Reminded ${data.reminded}/${data.booked} patients for ${data.date} ✓ (in-app + chat-ready)`)
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Could not send reminders')
+    } finally { setBusy(false) }
+  }
+  return (
+    <section style={s.card}>
+      <h3 className="sec-head"><span className="tile t-amber">⏰</span> Appointment Reminders</h3>
+      <p style={{ fontSize: 13, color: '#5d6b7a' }}>
+        Nudges every <b>booked</b> patient N days ahead. Pair with Chat → 🎥 Video for teleconsults.
+      </p>
+      <form onSubmit={send} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label>Days ahead: <input type="number" min={0} max={30} value={days} onChange={(e) => setDays(+e.target.value)} style={{ ...s.input, width: 70 }} /></label>
+        <button disabled={busy}>{busy ? 'Sending…' : 'Send reminders'}</button>
+        {msg && <span style={{ color: msg.includes('✓') ? 'green' : 'red' }}>{msg}</span>}
+      </form>
     </section>
   )
 }

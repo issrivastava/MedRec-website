@@ -107,8 +107,10 @@ class DoctorProfileOut(DoctorProfileIn):
 
 
 class AssignmentCreate(BaseModel):
-    # doctor adds patient by email OR patient adds doctor by email
-    email: EmailStr
+    # Link by email OR by AH-XXXX health ID (or raw UUID). One of them required.
+    email: EmailStr | None = None
+    health_id: str | None = None
+    user_id: str | None = None
 
 
 class AssignmentOut(BaseModel):
@@ -117,9 +119,21 @@ class AssignmentOut(BaseModel):
     patient_id: str
     doctor_name: str | None = None
     doctor_email: str | None = None
+    doctor_health_id: str | None = None
     patient_name: str | None = None
     patient_email: str | None = None
+    patient_health_id: str | None = None
     created_at: datetime
+
+
+class DirectoryLookupOut(BaseModel):
+    id: str
+    full_name: str
+    role: str
+    health_id: str | None = None
+    specialization: str | None = None
+    hospital: str | None = None
+    already_linked: bool = False
 
 
 class DocumentOut(BaseModel):
@@ -644,6 +658,12 @@ class MessageIn(BaseModel):
     doctor_id: str | None = None
     patient_id: str | None = None
     body: str = Field(min_length=1, max_length=4000)
+    priority: str = Field(default="normal", pattern="^(normal|urgent)$")
+    category: str = Field(
+        default="general",
+        pattern="^(general|query|followup|prescription|report|appointment|video|system)$",
+    )
+    attachment_document_id: str | None = None
 
 
 class MessageOut(BaseModel):
@@ -653,11 +673,35 @@ class MessageOut(BaseModel):
     sender_id: str
     sender_name: str | None = None
     body: str
+    priority: str = "normal"
+    category: str = "general"
+    attachment_document_id: str | None = None
+    attachment_title: str | None = None
+    sos_detected: bool = False
     read: bool = False
+    read_at: datetime | None = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class VideoRequestIn(BaseModel):
+    # The other side's id (doctor_id for patients, patient_id for doctors).
+    # Accepts UUID, AH-XXXX or email.
+    other_id: str
+    date: date
+    start_time: str = Field(pattern=r"^\d{2}:\d{2}$")
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class PresenceOut(BaseModel):
+    doctor_id: str
+    doctor_name: str | None = None
+    timings_line: str = ""
+    on_leave_today: bool = False
+    next_available: date | None = None
+    total_patients: int = 0
 
 
 # ---- Referrals ----

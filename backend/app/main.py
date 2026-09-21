@@ -120,6 +120,20 @@ def _ensure_columns() -> None:
                     _add("family_members", "health_id", "VARCHAR(10)")
             except Exception:
                 pass
+            # Secure chat upgrades: priority / category / attachments / SOS / read receipts
+            try:
+                m_cols = [c["name"] for c in insp.get_columns("messages")] if "messages" in tables else []
+                for col, ddl in [
+                    ("priority", "VARCHAR(10) DEFAULT 'normal'"),
+                    ("category", "VARCHAR(20) DEFAULT 'general'"),
+                    ("attachment_document_id", "VARCHAR(36)"),
+                    ("sos_detected", "BOOLEAN DEFAULT FALSE"),
+                    ("read_at", "TIMESTAMP"),
+                ]:
+                    if m_cols and col not in m_cols:
+                        _add("messages", col, ddl)
+            except Exception:
+                pass
     except Exception:
         pass  # fresh create_all already covers new databases
 
@@ -153,6 +167,11 @@ app = FastAPI(title="MedRec API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    # Vite auto-bumps ports (5173 -> 5174 -> 5175...) when the default is
+    # busy, and 127.0.0.1 is the same origin as localhost for dev. The regex
+    # covers any local dev port so CORS never blocks again; explicit
+    # allow_origins above still covers any deployed domains from .env.
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

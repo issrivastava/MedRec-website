@@ -23,6 +23,8 @@ import VitalsTracker from '../components/VitalsTracker'
 import VaccinationTracker from '../components/VaccinationTracker'
 import { ShareManager, ConsentManager } from '../components/Sharing'
 import ChatBox from '../components/ChatBox'
+import ConnectById from '../components/ConnectById'
+import MyIdCard from '../components/MyIdCard'
 import CompareReports from '../components/CompareReports'
 import { SecondOpinionBox } from '../components/CareTools'
 import { VoiceReader } from '../components/CareTools'
@@ -288,18 +290,20 @@ export default function PatientDashboard() {
 
           <section style={s.card}>
             <h3 className="sec-head"><span className="tile t-blue">👨‍⚕️</span> My Doctors</h3>
+            <MyIdCard user={user} compact />
+            <ConnectById role="patient" onLinked={load} />
             <form onSubmit={linkDoctor} className="inline-form">
-              <input placeholder="Doctor email to link" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} style={s.input} />
+              <input placeholder="Doctor email (legacy)" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} style={s.input} />
               <button style={s.primaryBtn}>Add</button>
             </form>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
               {links.map((l) => (
                 <span key={l.id} style={s.docChip}>
                   <Avatar seed={l.doctor_id} name={l.doctor_name} size={34} />
-                  <span><b>Dr. {l.doctor_name}</b><br /><small style={{ color: '#5d6b7a' }}>{l.doctor_email}</small></span>
+                  <span><b>Dr. {l.doctor_name}</b><br /><small style={{ color: '#5d6b7a' }}>{l.doctor_email}{l.doctor_health_id ? ` · 🪪 ${l.doctor_health_id}` : ''}</small></span>
                 </span>
               ))}
-              {!links.length && <span style={{ color: '#78716c' }}>No doctors linked yet.</span>}
+              {!links.length && <span style={{ color: '#78716c' }}>No doctors linked yet — paste their AH-XXXX ID above.</span>}
             </div>
           </section>
         </div>

@@ -28,8 +28,7 @@ export default function Footer() {
               </>
             ) : (
               <>
-                <Link to="/login" style={s.link}>Login</Link>
-                <Link to="/register" style={s.link}>Register</Link>
+                <Link to="/login" style={s.link}>Login / Sign up with Google</Link>
               </>
             )}
           </div>

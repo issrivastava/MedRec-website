@@ -43,6 +43,31 @@ def create_note(data: VisitNoteIn, db: Session = Depends(get_db), user: User = D
     notify(db, data.patient_id, "prescription" if data.note_type == "prescription" else "visit_note",
            f"New {data.note_type} from Dr. {user.full_name}",
            (data.title + "\n" if data.title else "") + data.content[:300], link="/patient")
+    # Continuity: drop the note + follow-up reminder into the secure chat thread
+    # so the patient sees it next to the conversation (respects chat consent).
+    try:
+        from app.models.tables import Message
+        from app.api.routes.sharing import consent_allows
+        if consent_allows(db, data.patient_id, user.id, "chat"):
+            meds = ""
+            try:
+                meds = ", ".join(m.get("name", "") for m in (v.medicines or []) if m.get("name"))[:200]
+            except Exception:
+                pass
+            chat_body = (f"📋 New {v.note_type} from Dr. {user.full_name}: "
+                         f"{v.title or ''}\n{(v.content or '')[:400]}"
+                         + (f"\n💊 {meds}" if meds else "")
+                         + (f"\n🔁 Follow-up on {v.follow_up_date} — reply here if symptoms change."
+                            if v.follow_up_date else "\nReply here if you have questions."))
+            db.add(Message(doctor_id=user.id, patient_id=data.patient_id, sender_id=user.id,
+                           body=chat_body, priority="normal",
+                           category="prescription" if v.note_type == "prescription" else "followup"))
+            db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     phone = patient_phone(db, data.patient_id)
     if phone:
         notify_phone_sms(phone, f"MedRec: Dr. {user.full_name} added a {data.note_type} for you.")

@@ -8,7 +8,6 @@ import NeedHelp from './components/NeedHelp'
 import ProtectedRoute from './components/ProtectedRoute'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
 import PatientDashboard from './pages/PatientDashboard'
 import DoctorLayout from './pages/doctor/DoctorLayout'
@@ -63,7 +62,8 @@ export default function App() {
               {/* Public home page: read about features first, then login */}
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
+              {/* Register page removed — Google sign-in on /login auto-creates patient/doctor accounts */}
+              <Route path="/register" element={<Navigate to="/login" replace />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/policy" element={<Policy />} />

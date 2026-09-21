@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     OLLAMA_FALLBACK_MODEL: str = "qwen2.5:7b"
     OLLAMA_VISION_MODEL: str = "moondream"
     OLLAMA_UNDERSTAND_TIMEOUT_SEC: int = 180
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174,http://localhost:3000"
     FIREBASE_CREDENTIALS_PATH: str = ""  # path to Firebase service-account JSON; empty = Firebase login disabled
     ADMIN_SIGNUP_KEY: str = ""  # required as admin_key to register role=admin; empty = disabled
     MAIL_HOST: str = ""

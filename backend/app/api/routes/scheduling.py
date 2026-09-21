@@ -78,10 +78,89 @@ def delete_slot(slot_id: str, db: Session = Depends(get_db), user: User = Depend
 
 @router.get("/doctors/{doctor_id}/availability", response_model=list[AvailabilityOut])
 def doctor_slots(doctor_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Accept AH-XXXX / email too so chat can pass the ID directly.
+    lookup = (doctor_id or "").strip()
+    hid = lookup.upper().replace(" ", "")
+    if hid.startswith("AH-"):
+        u = db.query(User).filter_by(health_id=hid).first()
+        if u and u.role == "doctor":
+            doctor_id = u.id
+    elif "@" in lookup:
+        u = db.query(User).filter_by(email=lookup.lower()).first()
+        if u and u.role == "doctor":
+            doctor_id = u.id
     if user.role == "patient" and not is_assigned(db, doctor_id, user.id):
         raise HTTPException(status_code=403, detail="Doctor not assigned to you")
     return [_slot_out(s) for s in db.query(AvailabilitySlot).filter_by(doctor_id=doctor_id)
             .order_by(AvailabilitySlot.weekday, AvailabilitySlot.start_time).all()]
+
+
+@router.get("/doctors/{doctor_id}/presence")
+def doctor_presence(doctor_id: str, db: Session = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """Chat header data: timings line, on-leave-today, next bookable day.
+
+    Accepts UUID, AH-XXXX or email. Patients must be assigned.
+    """
+    from datetime import timedelta
+    lookup = (doctor_id or "").strip()
+    hid = lookup.upper().replace(" ", "")
+    target_id = lookup
+    if hid.startswith("AH-"):
+        u = db.query(User).filter_by(health_id=hid).first()
+        if u and u.role == "doctor":
+            target_id = u.id
+    elif "@" in lookup:
+        u = db.query(User).filter_by(email=lookup.lower()).first()
+        if u and u.role == "doctor":
+            target_id = u.id
+    doc = db.query(User).filter_by(id=target_id, role="doctor").first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    if user.role == "patient" and not is_assigned(db, target_id, user.id):
+        raise HTTPException(status_code=403, detail="Doctor not assigned to you")
+    slots = db.query(AvailabilitySlot).filter_by(doctor_id=target_id)\
+        .order_by(AvailabilitySlot.weekday, AvailabilitySlot.start_time).all()
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    by_day: dict[int, list[str]] = {}
+    for s in slots:
+        by_day.setdefault(s.weekday, []).append(
+            f"{s.start_time.strftime('%H:%M')}–{s.end_time.strftime('%H:%M')}")
+    timings = " · ".join(f"{days[d]} {' ,'.join(v)}" for d, v in sorted(by_day.items()))
+    on_leave = False
+    try:
+        from app.models.tables import DoctorLeave, DoctorPatientAssignment
+        on_leave = db.query(DoctorLeave).filter_by(
+            doctor_id=target_id, date=date.today()).first() is not None
+        total = db.query(DoctorPatientAssignment).filter_by(doctor_id=target_id).count()
+    except Exception:
+        total = 0
+    # Next day with a free slot (scan 14 days).
+    next_avail = None
+    try:
+        from app.models.tables import Appointment
+        for i in range(14):
+            d = date.today() + timedelta(days=i)
+            day_slots = [s for s in slots if s.weekday == d.weekday()]
+            if not day_slots:
+                continue
+            try:
+                from app.models.tables import DoctorLeave as _DL
+                if db.query(_DL).filter_by(doctor_id=target_id, date=d).first():
+                    continue
+            except Exception:
+                pass
+            booked = {a.start_time.strftime("%H:%M") for a in db.query(Appointment)
+                      .filter_by(doctor_id=target_id, date=d, status="booked").all()}
+            if any(s.start_time.strftime("%H:%M") not in booked for s in day_slots):
+                next_avail = d
+                break
+    except Exception:
+        pass
+    return {"doctor_id": target_id, "doctor_name": doc.full_name,
+            "timings_line": timings, "on_leave_today": on_leave,
+            "next_available": next_avail,
+            "total_patients": total}
 
 
 # ---- appointments ----

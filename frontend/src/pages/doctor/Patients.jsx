@@ -3,9 +3,13 @@ import { Link } from 'react-router-dom'
 import api from '../../api'
 import { Avatar } from '../../components/People'
 import { useDoctor } from './DoctorContext'
+import ConnectById from '../../components/ConnectById'
+import MyIdCard from '../../components/MyIdCard'
+import { useAuth } from '../../context/AuthContext'
 
 export default function Patients() {
   const { patients, selectedId, setSelected, reload } = useDoctor()
+  const { user } = useAuth()
   const [q, setQ] = useState('')
   const [addEmail, setAddEmail] = useState('')
   const [msg, setMsg] = useState('')
@@ -15,7 +19,8 @@ export default function Patients() {
     if (!needle) return patients
     return patients.filter((p) =>
       (p.patient_name || '').toLowerCase().includes(needle) ||
-      (p.patient_email || '').toLowerCase().includes(needle)
+      (p.patient_email || '').toLowerCase().includes(needle) ||
+      (p.patient_health_id || '').toLowerCase().includes(needle)
     )
   }, [patients, q])
 
@@ -36,14 +41,16 @@ export default function Patients() {
     <div className="rise">
       <section style={s.card}>
         <h3 className="sec-head"><span className="tile t-blue">🧑‍🤝‍🧑</span> Patients ({patients.length})</h3>
+        <MyIdCard user={user} compact />
+        <ConnectById role="doctor" onLinked={reload} />
         <form onSubmit={addPatient} className="inline-form">
-          <input placeholder="Patient email to link" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} style={s.input} />
+          <input placeholder="Patient email (legacy)" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} style={s.input} />
           <button style={s.primaryBtn}>Link patient</button>
           {msg && <span style={{ color: msg.includes('✓') ? 'green' : 'red' }}>{msg}</span>}
         </form>
         <div className="toolbar-row">
           <input
-            placeholder="Search name or email…"
+            placeholder="Search name, email or AH-XXXX…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             style={{ ...s.input, flex: 1, minWidth: 200 }}
@@ -58,7 +65,7 @@ export default function Patients() {
             >
               <Avatar seed={p.patient_id} name={p.patient_name} size={44} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <b>{p.patient_name}</b><br />
+                <b>{p.patient_name}</b> {p.patient_health_id && <span className="pill pill-info" style={{ fontSize: 11 }}>🪪 {p.patient_health_id}</span>}<br />
                 <small style={{ color: '#5d6b7a' }}>{p.patient_email}</small>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                   <Link to={`/doctor/patients/${p.patient_id}`}>

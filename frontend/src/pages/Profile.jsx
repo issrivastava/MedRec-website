@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import api, { avatarSrc } from '../api'
 import { useAuth } from '../context/AuthContext'
 import AvatarEditor from '../components/AvatarEditor'
+import MyIdCard from '../components/MyIdCard'
 import { calcAge, formatDate } from '../utils'
 
 export default function Profile() {
@@ -115,6 +116,7 @@ export default function Profile() {
     <div style={s.wrap}>
       <h2 style={{ margin: '0 0 4px' }}>👤 My Profile</h2>
       <p style={{ color: '#5d6b7a', margin: '0 0 16px' }}>Your public identity across MedRec.</p>
+      <MyIdCard user={user} />
       <div className="cols-2" style={{ alignItems: 'start' }}>
         <section style={s.card}>
           <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>

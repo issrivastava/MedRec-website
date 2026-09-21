@@ -19,7 +19,7 @@ const FEATURES = [
 ]
 
 const STEPS = [
-  { n: '1', title: 'Create your account', text: 'Register free as a patient or doctor, then log in.' },
+  { n: '1', title: 'Sign in with Google', text: 'Pick patient or doctor on login — your account is created automatically.' },
   { n: '2', title: 'Build your record', text: 'Fill your info page, scan reports, link your doctor by email.' },
   { n: '3', title: 'Get AI clarity', text: 'One tap turns any document into a summary you can actually understand.' },
   { n: '4', title: 'Doctors take over', text: 'Your doctor picks you from their dropdown and reviews everything.' },
@@ -54,8 +54,7 @@ export default function Landing() {
                 <Link to={dashboard} style={s.primary}>Go to my Dashboard →</Link>
               ) : (
                 <>
-                  <Link to="/login" style={s.primary}>Login to my account →</Link>
-                  <Link to="/register" style={s.secondary}>Create free account</Link>
+                  <Link to="/login" style={s.primary}>Login / Sign up with Google →</Link>
                 </>
               )}
             </div>
@@ -111,7 +110,7 @@ export default function Landing() {
         <div className="band-overlay">
           <h2 style={s.bandH}>Care, connected.</h2>
           <p style={s.bandP}>Patients, doctors and families — finally looking at the same record.</p>
-          {!user && <Link to="/register" style={s.primary}>Join free →</Link>}
+          {!user && <Link to="/login" style={s.primary}>Join with Google →</Link>}
         </div>
       </section>
 
@@ -154,7 +153,7 @@ export default function Landing() {
           <div>
             <h2 style={{ margin: '0 0 8px', fontSize: 30, fontFamily: 'Georgia, serif', color: '#fff' }}>Stop losing prescriptions in drawers.</h2>
             <p style={{ margin: '0 0 18px', color: '#c9d4e2' }}>Join MedRec free — your health history, organized forever.</p>
-            {!user && <Link to="/register" style={s.ctaBtn}>Get started — it's free →</Link>}
+            {!user && <Link to="/login" style={s.ctaBtn}>Get started with Google →</Link>}
           </div>
         </div>
       </section>

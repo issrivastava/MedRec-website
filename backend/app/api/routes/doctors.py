@@ -79,8 +79,10 @@ def my_patients(db: Session = Depends(get_db), user: User = Depends(require_doct
                 patient_id=link.patient_id,
                 doctor_name=d.full_name if d else None,
                 doctor_email=d.email if d else None,
+                doctor_health_id=getattr(d, "health_id", None) if d else None,
                 patient_name=p.full_name,
                 patient_email=p.email,
+                patient_health_id=getattr(p, "health_id", None),
                 created_at=link.created_at,
             )
         )
