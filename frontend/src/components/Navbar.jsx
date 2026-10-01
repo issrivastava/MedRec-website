@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useLang } from '../i18n.jsx'
 import api, { avatarSrc } from '../api'
 import { ThemeToggle } from './HealthUX'
 
 const DISCOVER_PATHS = ['/medicines', '/illnesses', '/diseases', '/find-doctors', '/ask-ai']
-const RECORDS_PATHS = ['/upload', '/timeline', '/billing', '/directory', '/pharmacy']
+const RECORDS_PATHS = ['/upload', '/billing', '/directory', '/pharmacy']
 
 export default function Navbar() {
   const { user, logout } = useAuth()
+  const { lang, setLang, t } = useLang()
   const [unread, setUnread] = useState(0)
   const [chatUnread, setChatUnread] = useState(0)
   const [open, setOpen] = useState(false)
@@ -128,14 +130,22 @@ export default function Navbar() {
           <span className="brand-mark teal">+</span> MedRec
         </Link>
         <span style={{ display: 'inline-flex', marginRight: 4 }}><ThemeToggle /></span>
+        <button
+          onClick={() => setLang(lang === 'hi' ? 'en' : 'hi')}
+          className="nav-ghost-btn"
+          title={lang === 'hi' ? 'Switch to English' : 'हिंदी में देखें'}
+          aria-label="Language"
+        >
+          {lang === 'hi' ? 'EN' : 'हिं'}
+        </button>
         <button className="nav-toggle" aria-label="Menu" onClick={() => setOpen((o) => !o)}>
           {open ? '✕' : '☰'}
         </button>
         <div className={`nav-links${open ? ' open' : ''}`} onClick={() => setOpen(false)}>
-          <NavLink to="/" end className={linkCls}>Home</NavLink>
+          <NavLink to="/" end className={linkCls}>{t('nav.home')}</NavLink>
           {user ? (
             <>
-              <NavLink to={dashboard} className={linkCls}>Dashboard</NavLink>
+              <NavLink to={dashboard} className={linkCls}>{t('nav.dashboard')}</NavLink>
               <div className="nav-drop">
                 <button
                   type="button"
@@ -144,15 +154,14 @@ export default function Navbar() {
                   onClick={(e) => { e.stopPropagation(); setMenu((m) => (m === 'records' ? null : 'records')) }}
                   className={`nav-link nav-drop-btn${recordsActive ? ' active' : ''}`}
                 >
-                  Records {menu === 'records' ? '▴' : '▾'}
+                  {t('nav.records')} {menu === 'records' ? '▴' : '▾'}
                 </button>
                 {menu === 'records' && (
                   <div className="nav-drop-menu" role="menu" aria-label="Records">
-                    {user.role === 'patient' && <NavLink to="/upload" className={linkCls} role="menuitem">⬆️ Upload report</NavLink>}
-                    {(user.role === 'patient' || user.role === 'doctor') && <NavLink to="/timeline" className={linkCls} role="menuitem">🕘 Timeline</NavLink>}
-                    <NavLink to="/billing" className={linkCls} role="menuitem">🧾 Billing</NavLink>
-                    {staff && <NavLink to="/directory" className={linkCls} role="menuitem">📁 Directory</NavLink>}
-                    {staff && <NavLink to="/pharmacy" className={linkCls} role="menuitem">💊 Pharmacy</NavLink>}
+                    {user.role === 'patient' && <NavLink to="/upload" className={linkCls} role="menuitem">⬆️ {t('nav.upload')}</NavLink>}
+                    <NavLink to="/billing" className={linkCls} role="menuitem">🧾 {t('nav.billing')}</NavLink>
+                    {staff && <NavLink to="/directory" className={linkCls} role="menuitem">📁 {t('nav.directory')}</NavLink>}
+                    {staff && <NavLink to="/pharmacy" className={linkCls} role="menuitem">💊 {t('nav.pharmacy')}</NavLink>}
                   </div>
                 )}
               </div>
@@ -164,14 +173,14 @@ export default function Navbar() {
                   onClick={(e) => { e.stopPropagation(); setMenu((m) => (m === 'discover' ? null : 'discover')) }}
                   className={`nav-link nav-drop-btn${discoverActive ? ' active' : ''}`}
                 >
-                  Discover {menu === 'discover' ? '▴' : '▾'}
+                  {t('nav.discover')} {menu === 'discover' ? '▴' : '▾'}
                 </button>
                 {menu === 'discover' && (
                   <div className="nav-drop-menu" role="menu" aria-label="Discover">
-                    <NavLink to="/medicines" className={linkCls} role="menuitem">💊 Medicines</NavLink>
-                    <NavLink to="/illnesses" className={linkCls} role="menuitem">🩺 Illnesses</NavLink>
-                    <NavLink to="/find-doctors" className={linkCls} role="menuitem">🏥 Find Doctors</NavLink>
-                    <NavLink to="/ask-ai" className={linkCls} role="menuitem">🤖 Ask AI</NavLink>
+                    <NavLink to="/medicines" className={linkCls} role="menuitem">💊 {t('nav.medicines')}</NavLink>
+                    <NavLink to="/illnesses" className={linkCls} role="menuitem">🩺 {t('nav.illnesses')}</NavLink>
+                    <NavLink to="/find-doctors" className={linkCls} role="menuitem">🏥 {t('nav.findDoctors')}</NavLink>
+                    <NavLink to="/ask-ai" className={linkCls} role="menuitem">🤖 {t('nav.askAi')}</NavLink>
                   </div>
                 )}
               </div>
@@ -196,9 +205,9 @@ export default function Navbar() {
                 {menu === 'user' && (
                   <div className="nav-drop-menu" role="menu" aria-label="Account" style={{ right: 0, left: 'auto' }}>
                     <div style={s.menuHead}>{user.full_name}</div>
-                    <NavLink to="/profile" className={linkCls} role="menuitem">👤 Profile</NavLink>
+                    <NavLink to="/profile" className={linkCls} role="menuitem">👤 {t('nav.profile')}</NavLink>
                     {canChat && (
-                      <NavLink to={chatTo} className={linkCls} role="menuitem">💬 Chat{chatUnread > 0 ? ` (${chatUnread})` : ''}</NavLink>
+                      <NavLink to={chatTo} className={linkCls} role="menuitem">💬 {t('nav.chat')}{chatUnread > 0 ? ` (${chatUnread})` : ''}</NavLink>
                     )}
                     <button
                       type="button"
@@ -207,7 +216,7 @@ export default function Navbar() {
                       className="nav-link"
                       style={{ border: 0, background: 'transparent', cursor: 'pointer', font: 'inherit' }}
                     >
-                      ⎋ Logout
+                      ⎋ {t('nav.logout')}
                     </button>
                   </div>
                 )}
@@ -215,8 +224,8 @@ export default function Navbar() {
             </>
           ) : (
             <>
-              <NavLink to="/contact" className={linkCls}>Contact</NavLink>
-              <Link to="/login" className="nav-cta">Get started →</Link>
+              <NavLink to="/contact" className={linkCls}>{t('nav.contact')}</NavLink>
+              <Link to="/login" className="nav-cta">{t('nav.getStarted')}</Link>
             </>
           )}
         </div>

@@ -185,6 +185,12 @@ class OverallSummaryOut(BaseModel):
     documents_used: int
 
 
+class OverallSummaryPdfIn(BaseModel):
+    """Render an already-generated overall summary as PDF (no regeneration)."""
+    text: str = Field(min_length=10, max_length=20000)
+    language: str = Field(default="en", max_length=20)
+
+
 class ContactIn(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     email: EmailStr
@@ -429,23 +435,6 @@ class DoctorRatingOut(BaseModel):
     doctor_name: str | None = None
     average: float | None = None
     count: int = 0
-
-
-class SiteReviewIn(BaseModel):
-    """The user's own review of MedRec itself."""
-    rating: int = Field(ge=1, le=5)
-    comment: str | None = Field(default=None, max_length=2000)
-
-
-class SiteReviewOut(BaseModel):
-    id: str
-    user_id: str
-    rating: int
-    comment: str | None = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class OtpRequestIn(BaseModel):
@@ -759,33 +748,6 @@ class RxTemplateOut(RxTemplateIn):
         from_attributes = True
 
 
-# ---- Second opinions ----
-class SecondOpinionIn(BaseModel):
-    target_doctor_id: str
-    document_ids: list[str] | None = None
-    question: str = Field(min_length=5, max_length=3000)
-
-
-class SecondOpinionOut(BaseModel):
-    id: str
-    patient_id: str
-    patient_name: str | None = None
-    target_doctor_id: str
-    target_doctor_name: str | None = None
-    document_ids: list | None = None
-    question: str
-    answer: str | None = None
-    status: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class SecondOpinionAnswerIn(BaseModel):
-    answer: str = Field(min_length=3, max_length=5000)
-
-
 # ---- Announcements ----
 class AnnouncementIn(BaseModel):
     title: str = Field(min_length=3, max_length=255)
@@ -878,42 +840,6 @@ class LeaveOut(BaseModel):
     doctor_id: str
     date: date
     reason: str | None = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class BroadcastIn(BaseModel):
-    title: str = Field(min_length=3, max_length=255)
-    body: str = Field(min_length=5, max_length=2000)
-
-
-class BroadcastOut(BaseModel):
-    id: str
-    doctor_id: str
-    title: str
-    body: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class PreVisitIn(BaseModel):
-    appointment_id: str
-    questions: list[str] | None = None
-    answers: list | None = None
-
-
-class PreVisitOut(BaseModel):
-    id: str
-    appointment_id: str
-    doctor_id: str
-    patient_id: str
-    questions: list | None = None
-    answers: list | None = None
-    status: str
     created_at: datetime
 
     class Config:
@@ -1069,6 +995,7 @@ class InvoiceIn(BaseModel):
     patient_id: str
     doctor_id: str | None = None
     appointment_id: str | None = None
+    category: str = Field(default="consultation", max_length=50)  # bill type, validated in billing.py
     items: list[InvoiceItemIn] | None = None
     amount: float | None = Field(default=None, ge=0)
     currency: str = Field(default="INR", max_length=10)
@@ -1089,6 +1016,7 @@ class InvoiceOut(BaseModel):
     doctor_name: str | None = None
     appointment_id: str | None = None
     receipt_no: str | None = None
+    category: str = "other"
     amount: float
     currency: str = "INR"
     items: list | None = None
@@ -1096,6 +1024,7 @@ class InvoiceOut(BaseModel):
     payment_mode: str | None = None
     paid_amount: float = 0.0
     balance: float = 0.0
+    upi_ref: str | None = None
     insurance_provider: str | None = None
     insurance_policy_no: str | None = None
     insurance_claim_amount: float | None = None
@@ -1111,6 +1040,29 @@ class InvoiceOut(BaseModel):
 class InvoicePayIn(BaseModel):
     paid_amount: float = Field(ge=0)
     payment_mode: str = Field(pattern="^(cash|card|upi|netbanking|insurance|other)$")
+    upi_ref: str | None = Field(default=None, max_length=100)  # UTR / UPI txn id for upi mode
+
+
+# ---- Daily medicine reminders (refill loop) ----
+class MedReminderIn(BaseModel):
+    medicine_name: str = Field(min_length=2, max_length=255)
+    dosage: str | None = Field(default=None, max_length=255)
+    remind_at: str = Field(default="09:00", pattern=r"^\d{2}:\d{2}$")  # HH:MM
+    active: bool = True
+
+
+class MedReminderOut(BaseModel):
+    id: str
+    owner_id: str
+    medicine_name: str
+    dosage: str | None = None
+    remind_at: str
+    active: bool = True
+    last_sent: date | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class PharmacyItemIn(BaseModel):

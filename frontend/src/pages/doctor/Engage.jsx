@@ -7,13 +7,12 @@ export default function Engage() {
   return (
     <div className="rise">
       <div className="toolbar-row" style={{ marginBottom: 12 }}>
-        {[['groups', '👥 Patient Groups'], ['recall', '📞 Recall'], ['broadcast', '📣 Broadcast'], ['reminders', '⏰ Reminders'], ['adherence', '✅ Adherence']].map(([k, l]) => (
+        {[['groups', '👥 Patient Groups'], ['recall', '📞 Recall'], ['reminders', '⏰ Reminders'], ['adherence', '✅ Adherence']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} style={tab === k ? s.tabActive : s.tab}>{l}</button>
         ))}
       </div>
       {tab === 'groups' && <Groups />}
       {tab === 'recall' && <Recall />}
-      {tab === 'broadcast' && <Broadcast />}
       {tab === 'reminders' && <Reminders />}
       {tab === 'adherence' && <Adherence />}
     </div>
@@ -54,46 +53,6 @@ function Groups() {
         </div>
       ))}
       {!shown.length && <div className="empty">No patients match.</div>}
-    </section>
-  )
-}
-
-function Broadcast() {
-  const [rows, setRows] = useState([])
-  const [form, setForm] = useState({ title: '', body: '' })
-  const [msg, setMsg] = useState('')
-  const load = async () => {
-    const { data } = await api.get('/api/practice/broadcasts')
-    setRows(data)
-  }
-  useEffect(() => { load().catch(console.error) }, [])
-  const send = async (e) => {
-    e.preventDefault()
-    setMsg('')
-    try {
-      const { data } = await api.post('/api/practice/broadcasts', form)
-      setMsg(`Sent to ${data.recipients} patients ✓`)
-      setForm({ title: '', body: '' })
-      load()
-    } catch (err) { setMsg(err.response?.data?.detail || 'Could not send') }
-  }
-  return (
-    <section style={s.card}>
-      <h3 className="sec-head"><span className="tile t-teal">📣</span> Broadcast to My Patients</h3>
-      <form onSubmit={send} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-        <input placeholder="Title (e.g. Clinic closed on Diwali)" value={form.title}
-          onChange={(e) => setForm({ ...form, title: e.target.value })} required style={s.input} />
-        <textarea placeholder="Message for all assigned patients…" value={form.body}
-          onChange={(e) => setForm({ ...form, body: e.target.value })} required rows={3} style={s.input} />
-        <button style={{ alignSelf: 'flex-start' }}>Send to all my patients</button>
-        {msg && <span style={{ color: msg.includes('✓') ? 'green' : 'red' }}>{msg}</span>}
-      </form>
-      {rows.map((b) => (
-        <div key={b.id} style={s.row}>
-          <span><b>{b.title}</b><br /><small>{b.body} · {String(b.created_at).slice(0, 10)}</small></span>
-        </div>
-      ))}
-      {!rows.length && <small>No broadcasts yet.</small>}
     </section>
   )
 }
@@ -163,6 +122,7 @@ function Reminders() {
       <h3 className="sec-head"><span className="tile t-amber">⏰</span> Appointment Reminders</h3>
       <p style={{ fontSize: 13, color: '#5d6b7a' }}>
         Nudges every <b>booked</b> patient N days ahead. Pair with Chat → 🎥 Video for teleconsults.
+        <br />🤖 Automatic: the backend also sends tomorrow's reminders + SMS every morning on its own (AUTO_REMINDERS).
       </p>
       <form onSubmit={send} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <label>Days ahead: <input type="number" min={0} max={30} value={days} onChange={(e) => setDays(+e.target.value)} style={{ ...s.input, width: 70 }} /></label>

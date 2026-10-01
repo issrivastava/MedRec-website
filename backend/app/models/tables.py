@@ -439,17 +439,6 @@ class Review(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
-class SiteReview(Base):
-    """A user's own review of MedRec itself. Shown only in the writer's own dashboard."""
-    __tablename__ = "site_reviews"
-
-    id: Mapped[str] = _uuid_col()
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..5
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-
-
 class OtpCode(Base):
     """Short-lived email OTP for login / registration / password reset.
 
@@ -620,20 +609,6 @@ class RxTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
-class SecondOpinion(Base):
-    """Patient request for a second opinion from another doctor."""
-    __tablename__ = "second_opinions"
-
-    id: Mapped[str] = _uuid_col()
-    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    target_doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    document_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    question: Mapped[str] = mapped_column(Text, nullable=False)
-    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending|answered|closed
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-
-
 class Announcement(Base):
     """Admin broadcast to all / patients / doctors."""
     __tablename__ = "announcements"
@@ -706,31 +681,6 @@ class DoctorLeave(Base):
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class DoctorBroadcast(Base):
-    """Doctor -> all my assigned patients (notification fan-out)."""
-    __tablename__ = "doctor_broadcasts"
-
-    id: Mapped[str] = _uuid_col()
-    doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-
-
-class PreVisit(Base):
-    """Pre-visit intake checklist per appointment (questions + answers JSON)."""
-    __tablename__ = "pre_visits"
-
-    id: Mapped[str] = _uuid_col()
-    appointment_id: Mapped[str] = mapped_column(String(36), ForeignKey("appointments.id", ondelete="CASCADE"), index=True)
-    doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    questions: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [str]
-    answers: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [{q, a}]
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|submitted
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class ReviewReply(Base):
@@ -854,12 +804,16 @@ class Invoice(Base):
     appointment_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("appointments.id", ondelete="SET NULL"), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     receipt_no: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="other", index=True)  # bill type
     amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     currency: Mapped[str] = mapped_column(String(10), nullable=False, default="INR")
     items: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [{label, qty, rate, amount}]
     status: Mapped[str] = mapped_column(String(20), default="issued", index=True)  # draft|issued|paid|partially_paid|cancelled|refunded
     payment_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)  # cash|card|upi|netbanking|insurance|other
     paid_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # UPI collect flow: patient pays to the clinic VPA, submits UTR/ref here,
+    # staff verifies and marks paid. No gateway keys needed.
+    upi_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
     insurance_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
     insurance_policy_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     insurance_claim_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -918,4 +872,22 @@ class DocumentPage(Base):
     page_no: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class MedicationReminder(Base):
+    """Daily medicine nudge: patient sets medicine + time, the scheduler
+    sends an in-app notification (+SMS when configured). No push infra needed."""
+    __tablename__ = "medication_reminders"
+    __table_args__ = (
+        Index("ix_medrem_owner_active", "owner_id", "active"),
+    )
+
+    id: Mapped[str] = _uuid_col()
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    medicine_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dosage: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    remind_at: Mapped[str] = mapped_column(String(5), nullable=False, default="09:00")  # HH:MM
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_sent: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

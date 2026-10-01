@@ -77,9 +77,9 @@ export default function Overview() {
   return (
     <div>
       <div className="stat-grid">
-        <div className="stat"><div className="num">{patients.length}</div><div className="lbl">Patients</div></div>
-        <div className="stat"><div className="num">{todays.length}</div><div className="lbl">Today</div></div>
-        <div className="stat"><div className="num">{booked.length}</div><div className="lbl">Booked</div></div>
+        <div className="gstat g-blue"><div className="num">{patients.length}</div><div className="lbl">Patients</div><div className="sub">Linked to your practice</div><span className="big-icon">🧑‍🤝‍🧑</span></div>
+        <div className="gstat g-teal"><div className="num">{todays.length}</div><div className="lbl">Today</div><div className="sub">Appointments due</div><span className="big-icon">📅</span></div>
+        <div className="gstat g-violet"><div className="num">{booked.length}</div><div className="lbl">Booked</div><div className="sub">Upcoming visits</div><span className="big-icon">✍️</span></div>
       </div>
 
       <div className="tabs">

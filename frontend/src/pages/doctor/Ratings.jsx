@@ -2,38 +2,23 @@ import { useEffect, useState } from 'react'
 import api from '../../api'
 import { useAuth } from '../../context/AuthContext'
 import { Avatar } from '../../components/People'
-import { Stars, StarPicker } from '../../components/Reviews'
+import { Stars } from '../../components/Reviews'
 
 export default function Ratings() {
   const { user } = useAuth()
   const [rating, setRating] = useState(null)
   const [reviews, setReviews] = useState([])
-  const [siteForm, setSiteForm] = useState({ rating: 5, comment: '' })
-  const [mySite, setMySite] = useState(null)
-  const [msg, setMsg] = useState('')
 
   const load = async () => {
     const docId = user?.id
-    const calls = [
-      api.get('/api/reviews/received').catch(() => ({ data: [] })),
-      api.get('/api/reviews/site/my').catch(() => ({ data: null })),
-    ]
+    const calls = [api.get('/api/reviews/received').catch(() => ({ data: [] }))]
     if (docId) calls.push(api.get(`/api/reviews/doctor/${docId}/rating`).catch(() => ({ data: null })))
-    const [recv, site, avg] = await Promise.all(calls)
+    const [recv, avg] = await Promise.all(calls)
     setReviews(recv.data || [])
-    setMySite(site.data || null)
     if (avg?.data) setRating(avg.data)
-    if (site.data) setSiteForm({ rating: site.data.rating, comment: site.data.comment || '' })
   }
 
   useEffect(() => { load().catch(console.error) }, [])
-
-  const submitSite = async (e) => {
-    e.preventDefault()
-    await api.post('/api/reviews/site', siteForm)
-    setMsg('Thanks — your MedRec review is saved!')
-    load()
-  }
 
   const avg = rating?.average
   const count = rating?.count ?? reviews.length
@@ -71,17 +56,6 @@ export default function Ratings() {
             {r.comment && <p style={{ margin: '6px 0' }}>{r.comment}</p>}
           </div>
         ))}
-      </section>
-
-      <section style={s.card}>
-        <h3 className="sec-head"><span className="tile t-violet">💙</span> Rate MedRec (private)</h3>
-        <form onSubmit={submitSite} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-          <div><StarPicker value={siteForm.rating} onChange={(v) => setSiteForm({ ...siteForm, rating: v })} /></div>
-          <textarea placeholder="What do you think of MedRec?" value={siteForm.comment} onChange={(e) => setSiteForm({ ...siteForm, comment: e.target.value })} rows={3} style={{ ...s.input, width: '100%' }} />
-          <button style={s.btn}>{mySite ? 'Update my MedRec review' : 'Submit MedRec review'}</button>
-          {msg && <span style={{ color: 'green' }}>{msg}</span>}
-        </form>
-        <p style={{ fontSize: 12, color: '#5d6b7a' }}>🔒 Patient reviews of you are read-only here. Your MedRec review is private to your dashboard.</p>
       </section>
     </div>
   )

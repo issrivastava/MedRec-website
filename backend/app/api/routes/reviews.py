@@ -4,8 +4,8 @@ from sqlalchemy import func
 
 from app.core.deps import get_current_user, require_patient, is_assigned
 from app.db.session import get_db
-from app.models.tables import Review, SiteReview, User
-from app.schemas.schemas import ReviewIn, ReviewOut, DoctorRatingOut, SiteReviewIn, SiteReviewOut
+from app.models.tables import Review, User
+from app.schemas.schemas import ReviewIn, ReviewOut, DoctorRatingOut
 from app.services.notify import notify
 
 router = APIRouter()
@@ -103,40 +103,4 @@ def delete_review(review_id: str, db: Session = Depends(get_db), user: User = De
         raise HTTPException(status_code=403, detail="Not yours")
     db.delete(r)
     db.commit()
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Own review of MedRec itself — visible only in the writer's own dashboard
-# ---------------------------------------------------------------------------
-
-@router.post("/site", response_model=SiteReviewOut, status_code=201)
-def leave_site_review(data: SiteReviewIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Write your own review of MedRec (any logged-in user, one per user — resubmitting updates it)."""
-    existing = db.query(SiteReview).filter_by(user_id=user.id).first()
-    if existing:
-        existing.rating = data.rating
-        existing.comment = data.comment
-        db.commit()
-        db.refresh(existing)
-        return existing
-    r = SiteReview(user_id=user.id, rating=data.rating, comment=data.comment)
-    db.add(r)
-    db.commit()
-    db.refresh(r)
-    return r
-
-
-@router.get("/site/my", response_model=SiteReviewOut | None)
-def my_site_review(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """My own MedRec review (or null). Never listed publicly."""
-    return db.query(SiteReview).filter_by(user_id=user.id).first()
-
-
-@router.delete("/site/my", status_code=204)
-def delete_site_review(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    r = db.query(SiteReview).filter_by(user_id=user.id).first()
-    if r:
-        db.delete(r)
-        db.commit()
     return None

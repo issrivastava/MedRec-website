@@ -23,7 +23,7 @@ export default function AdminActivity() {
     <div>
       <div style={s.grid}>
         {[['Vitals', data.vitals], ['Vaccinations', data.vaccinations], ['Share links', data.share_links],
-          ['Chat msgs', data.messages], ['Referrals', data.referrals], ['2nd opinions', data.second_opinions],
+          ['Chat msgs', data.messages], ['Referrals', data.referrals],
           ['Active SOS', data.active_sos], ['Unacked alerts', data.unacked_alerts]].map(([k, v]) => (
           <div key={k} style={s.stat}><div style={s.num}>{v}</div><div>{k}</div></div>
         ))}

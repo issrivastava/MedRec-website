@@ -39,7 +39,7 @@ export function MicButton({ onText }) {
 
 const s = { mini: { padding: '2px 8px', fontSize: 12, cursor: 'pointer', borderRadius: 6 } }
 
-/* Rx templates + referrals + second opinions, grouped for doctor/patient dashboards. */
+/* Rx templates + referrals, grouped for doctor/patient dashboards. */
 export function RxTemplates({ onInsert }) {
   const [rows, setRows] = useState([])
   const [form, setForm] = useState({ name: '', content: '', medicines: '' })
@@ -107,51 +107,6 @@ export function ReferralBox({ role, patientId }) {
         </div>
       ))}
       {!rows.length && <small>No referrals yet.</small>}
-    </div>
-  )
-}
-
-export function SecondOpinionBox({ role, doctors }) {
-  const [rows, setRows] = useState([])
-  const [form, setForm] = useState({ target_doctor_id: '', question: '' })
-  const [answers, setAnswers] = useState({})
-  const load = async () => { const { data } = await api.get('/api/care/second-opinions').catch(() => ({ data: [] })); setRows(data) }
-  useEffect(() => { load().catch(console.error) }, [])
-  const create = async (e) => {
-    e.preventDefault()
-    await api.post('/api/care/second-opinions', form)
-    setForm({ target_doctor_id: '', question: '' }); load()
-  }
-  const answer = async (id) => {
-    await api.post(`/api/care/second-opinions/${id}/answer`, { answer: answers[id] })
-    load()
-  }
-  return (
-    <div>
-      {role !== 'doctor' && (
-        <form onSubmit={create} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          <select value={form.target_doctor_id} onChange={(e) => setForm({ ...form, target_doctor_id: e.target.value })} required style={{ padding: 8 }}>
-            <option value="">— Second-opinion doctor —</option>
-            {(doctors || []).map((d) => <option key={d.doctor_id} value={d.doctor_id}>{d.doctor_name}</option>)}
-          </select>
-          <input placeholder="Your question + context" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} required style={{ padding: 8, minWidth: 240 }} />
-          <button>Request</button>
-        </form>
-      )}
-      {rows.map((r) => (
-        <div key={r.id} style={s2.card}>
-          <b>{r.patient_name || 'You'} → Dr. {r.target_doctor_name}</b> <small>({r.status})</small>
-          <p style={{ margin: '4px 0' }}>Q: {r.question}</p>
-          {r.answer ? <p style={{ background: '#f0fdf4', padding: 8, borderRadius: 8 }}>A: {r.answer}</p> : <i>No answer yet.</i>}
-          {role === 'doctor' && !r.answer && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              <input placeholder="Write answer…" value={answers[r.id] || ''} onChange={(e) => setAnswers({ ...answers, [r.id]: e.target.value })} style={{ flex: 1, padding: 8 }} />
-              <button onClick={() => answer(r.id)}>Answer</button>
-            </div>
-          )}
-        </div>
-      ))}
-      {!rows.length && <small>No second-opinion requests yet.</small>}
     </div>
   )
 }

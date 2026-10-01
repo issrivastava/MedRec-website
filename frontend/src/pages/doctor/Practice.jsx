@@ -10,7 +10,6 @@ const tabs = [
   ['plans', '📋 Care Plans'],
   ['certs', '📜 Certificates'],
   ['leaves', '🌴 Leaves'],
-  ['intake', '📝 Intake'],
 ]
 
 export default function Practice() {
@@ -30,7 +29,6 @@ export default function Practice() {
       {tab === 'plans' && <CarePlans patients={patients} selectedId={selectedId} />}
       {tab === 'certs' && <Certificates patients={patients} selectedId={selectedId} />}
       {tab === 'leaves' && <Leaves />}
-      {tab === 'intake' && <Intake />}
     </div>
   )
 }
@@ -364,53 +362,6 @@ function Leaves() {
         </div>
       ))}
       {!rows.length && <small>No leaves marked.</small>}
-    </section>
-  )
-}
-
-/* ---------------- Pre-visit intake ---------------- */
-function Intake() {
-  const [appts, setAppts] = useState([])
-  const [rows, setRows] = useState([])
-  const [apptId, setApptId] = useState('')
-  const [questions, setQuestions] = useState('Current symptoms?\nAny new medicines since last visit?\nAnything you want to discuss?')
-  const load = async () => {
-    const [{ data: a }, { data: p }] = await Promise.all([
-      api.get('/api/scheduling/appointments/my').catch(() => ({ data: [] })),
-      api.get('/api/practice/pre-visits').catch(() => ({ data: [] })),
-    ])
-    setAppts(a.filter((x) => x.status === 'booked'))
-    setRows(p)
-  }
-  useEffect(() => { load().catch(console.error) }, [])
-  const create = async (e) => {
-    e.preventDefault()
-    await api.post('/api/practice/pre-visits', {
-      appointment_id: apptId,
-      questions: questions.split('\n').map((q) => q.trim()).filter(Boolean),
-    })
-    setApptId('')
-    load()
-  }
-  return (
-    <section style={s.card}>
-      <h3 className="sec-head"><span className="tile t-blue">📝</span> Pre-visit Intake</h3>
-      <form onSubmit={create} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-        <select value={apptId} onChange={(e) => setApptId(e.target.value)} required style={s.input}>
-          <option value="">— Upcoming appointment —</option>
-          {appts.map((a) => <option key={a.id} value={a.id}>{a.date} {a.start_time} — {a.patient_name}</option>)}
-        </select>
-        <input placeholder="Questions, one per line" value={questions} onChange={(e) => setQuestions(e.target.value)} style={{ ...s.input, minWidth: 260 }} />
-        <button>Send checklist</button>
-      </form>
-      {rows.map((r) => (
-        <div key={r.id} style={s.planCard}>
-          <b>{r.patient_name}</b> <small>· {r.status}</small>
-          <div style={{ fontSize: 13 }}>Q: {(r.questions || []).join(' | ')}</div>
-          {r.answers?.length ? <div style={{ fontSize: 13, background: '#f0fdf4', padding: 6, borderRadius: 6 }}>A: {JSON.stringify(r.answers)}</div> : <small>No answers yet.</small>}
-        </div>
-      ))}
-      {!rows.length && <small>No intake checklists yet.</small>}
     </section>
   )
 }

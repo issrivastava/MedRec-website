@@ -12,12 +12,12 @@ from app.core.deps import require_doctor, require_staff, is_assigned
 from app.db.session import get_db
 from app.models.tables import (
     User, VisitNote, Appointment, DoctorPatientAssignment, DoctorProfile,
-    LabOrder, CarePlan, Certificate, DoctorLeave, DoctorBroadcast,
-    PreVisit, Review, ReviewReply, AuditLog, Consent, ShareLink, Notification,
+    LabOrder, CarePlan, Certificate, DoctorLeave,
+    Review, ReviewReply, AuditLog, Consent, ShareLink, Notification,
 )
 from app.schemas.schemas import (
-    LabOrderIn, CarePlanIn, CertificateIn, LeaveIn, BroadcastIn,
-    PreVisitIn, ReviewReplyIn, CheckinIn, SoapIn, InteractionIn,
+    LabOrderIn, CarePlanIn, CertificateIn, LeaveIn,
+    ReviewReplyIn, CheckinIn, SoapIn, InteractionIn,
     RxSafetyIn, NudgeIn,
 )
 from app.services.notify import notify
@@ -459,38 +459,8 @@ def calendar_ics(db: Session = Depends(get_db), user: User = Depends(require_doc
 
 
 # ---------------------------------------------------------------------------
-# 3. Patient engagement: broadcasts, groups, pre-visit intake
+# 3. Patient engagement: groups (recall + reminders live in Engage)
 # ---------------------------------------------------------------------------
-
-@router.post("/broadcasts", status_code=201)
-def create_broadcast(data: BroadcastIn, db: Session = Depends(get_db),
-                     user: User = Depends(require_doctor)):
-    b = DoctorBroadcast(doctor_id=user.id, title=data.title.strip(), body=data.body.strip())
-    db.add(b)
-    db.commit()
-    db.refresh(b)
-    links = db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id).all()
-    for link in links:
-        try:
-            db.add(Notification(user_id=link.patient_id, kind="doctor_broadcast",
-                                title=f"Dr. {user.full_name}: {b.title}",
-                                body=b.body[:500], link="/patient",
-                                ref=f"broadcast:{b.id}:{link.patient_id}"))
-        except Exception:
-            pass
-    db.commit()
-    _audit(db, user.id, "broadcast", None, f"{b.title} -> {len(links)} patients")
-    return {"id": b.id, "doctor_id": b.doctor_id, "title": b.title,
-            "body": b.body, "created_at": b.created_at, "recipients": len(links)}
-
-
-@router.get("/broadcasts")
-def list_broadcasts(db: Session = Depends(get_db), user: User = Depends(require_doctor)):
-    rows = db.query(DoctorBroadcast).filter_by(doctor_id=user.id)\
-        .order_by(DoctorBroadcast.created_at.desc()).limit(50).all()
-    return [{"id": r.id, "doctor_id": r.doctor_id, "title": r.title,
-             "body": r.body, "created_at": r.created_at} for r in rows]
-
 
 @router.get("/patient-groups")
 def patient_groups(db: Session = Depends(get_db), user: User = Depends(require_doctor)):
@@ -524,42 +494,6 @@ def patient_groups(db: Session = Depends(get_db), user: User = Depends(require_d
             "stale_6m": sum(1 for r in patients if (r["stale_days"] or 0) > 180),
             "needs_attention": sum(1 for r in patients if r["needs_attention"]),
             "patients": patients}
-
-
-@router.post("/pre-visits", status_code=201)
-def create_previsit(data: PreVisitIn, db: Session = Depends(get_db),
-                    user: User = Depends(require_doctor)):
-    a = db.query(Appointment).filter_by(id=data.appointment_id, doctor_id=user.id).first()
-    if not a:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-    if db.query(PreVisit).filter_by(appointment_id=a.id).first():
-        raise HTTPException(status_code=400, detail="Intake already exists for this appointment")
-    r = PreVisit(appointment_id=a.id, doctor_id=user.id, patient_id=a.patient_id,
-                 questions=data.questions or ["Current symptoms?", "Any new medicines?",
-                                              "Allergies flare-up?", "Anything to discuss?"],
-                 answers=data.answers)
-    db.add(r)
-    db.commit()
-    db.refresh(r)
-    notify(db, a.patient_id, "pre_visit",
-           f"Dr. {user.full_name} shared a pre-visit checklist for {a.date}",
-           "Please answer before your visit.", link="/patient")
-    return {"id": r.id, "appointment_id": r.appointment_id, "doctor_id": r.doctor_id,
-            "patient_id": r.patient_id, "questions": r.questions, "answers": r.answers,
-            "status": r.status, "created_at": r.created_at}
-
-
-@router.get("/pre-visits")
-def list_previsits(appointment_id: str | None = None, db: Session = Depends(get_db),
-                   user: User = Depends(require_doctor)):
-    q = db.query(PreVisit).filter_by(doctor_id=user.id)
-    if appointment_id:
-        q = q.filter_by(appointment_id=appointment_id)
-    rows = q.order_by(PreVisit.created_at.desc()).limit(200).all()
-    return [{"id": r.id, "appointment_id": r.appointment_id, "doctor_id": r.doctor_id,
-             "patient_id": r.patient_id, "patient_name": _patient_name(db, r.patient_id),
-             "questions": r.questions, "answers": r.answers,
-             "status": r.status, "created_at": r.created_at} for r in rows]
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -19,6 +19,10 @@ from app.schemas.schemas import InvoiceIn, InvoiceOut, InvoicePayIn
 router = APIRouter()
 
 VALID_STATUS = ("draft", "issued", "paid", "partially_paid", "cancelled", "refunded")
+
+# Bill types shown in the New-invoice dropdown. Keep in sync with Billing.jsx.
+BILL_CATEGORIES = ("consultation", "lab", "xray", "mri", "imaging", "pharmacy",
+                   "procedure", "room", "vaccination", "other")
 
 
 def _names(db: Session, ids: set[str]) -> dict:
@@ -38,9 +42,11 @@ def _out(db: Session, inv: Invoice) -> dict:
         "patient_name": pat.full_name if pat else None,
         "doctor_id": inv.doctor_id, "doctor_name": doc.full_name if doc else None,
         "appointment_id": inv.appointment_id, "receipt_no": inv.receipt_no,
+        "category": getattr(inv, "category", None) or "other",
         "amount": inv.amount, "currency": inv.currency or "INR", "items": inv.items,
         "status": inv.status, "payment_mode": inv.payment_mode,
         "paid_amount": inv.paid_amount or 0.0, "balance": round(balance, 2),
+        "upi_ref": getattr(inv, "upi_ref", None),
         "insurance_provider": inv.insurance_provider,
         "insurance_policy_no": inv.insurance_policy_no,
         "insurance_claim_amount": inv.insurance_claim_amount,
@@ -83,6 +89,9 @@ def create_invoice(data: InvoiceIn, db: Session = Depends(get_db),
         doc = db.query(User).filter_by(id=data.doctor_id, role="doctor").first()
         if not doc:
             raise HTTPException(status_code=404, detail="Doctor not found")
+    category = (data.category or "other").strip().lower()
+    if category not in BILL_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid bill type — pick one of: {', '.join(BILL_CATEGORIES)}")
     items = [i.model_dump() for i in data.items] if data.items else None
     amount = data.amount
     if amount is None:
@@ -93,7 +102,8 @@ def create_invoice(data: InvoiceIn, db: Session = Depends(get_db),
     inv = Invoice(
         patient_id=data.patient_id, doctor_id=data.doctor_id,
         appointment_id=data.appointment_id, created_by=user.id,
-        receipt_no=_receipt_no(db), amount=float(amount), currency=data.currency or "INR",
+        receipt_no=_receipt_no(db), category=category,
+        amount=float(amount), currency=data.currency or "INR",
         items=items, status=data.status if data.status in VALID_STATUS else "issued",
         payment_mode=data.payment_mode, paid_amount=float(data.paid_amount or 0.0),
         insurance_provider=data.insurance_provider,
@@ -126,6 +136,7 @@ def create_invoice(data: InvoiceIn, db: Session = Depends(get_db),
 
 @router.get("/invoices", response_model=list[InvoiceOut])
 def list_invoices(patient_id: str | None = None, status: str | None = None,
+                  q: str | None = None, category: str | None = None,
                   limit: int = 100, offset: int = 0,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:
@@ -136,6 +147,26 @@ def list_invoices(patient_id: str | None = None, status: str | None = None,
         offset = max(0, int(offset))
     except Exception:
         offset = 0
+    # Staff name search (so the desk never needs a raw UUID): match patient
+    # name / email / health ID, then filter to those patients.
+    name_pids: list[str] | None = None
+    if q and user.role != "patient":
+        from app.models.tables import DoctorPatientAssignment
+        needle = (q or "").strip()
+        like = f"%{needle}%"
+        pquery = db.query(User).filter(
+            User.role == "patient",
+            or_(User.full_name.ilike(like), User.email.ilike(like),
+                User.health_id == needle.upper().replace(" ", "")))
+        if user.role == "doctor":
+            allowed = {l.patient_id for l in
+                       db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id).all()}
+            if not allowed:
+                return []
+            pquery = pquery.filter(User.id.in_(list(allowed)))
+        name_pids = [u.id for u in pquery.limit(50).all()]
+        if not name_pids:
+            return []
     q = db.query(Invoice)
     if user.role == "patient":
         q = q.filter_by(patient_id=user.id)
@@ -149,6 +180,12 @@ def list_invoices(patient_id: str | None = None, status: str | None = None,
     else:  # receptionist / nurse / admin
         if patient_id:
             q = q.filter_by(patient_id=patient_id)
+    if name_pids is not None:
+        q = q.filter(Invoice.patient_id.in_(name_pids))
+    if category:
+        if category not in BILL_CATEGORIES:
+            raise HTTPException(status_code=400, detail="Invalid bill type")
+        q = q.filter(Invoice.category == category)
     if status:
         if status not in VALID_STATUS:
             raise HTTPException(status_code=400, detail="Invalid status")
@@ -177,6 +214,11 @@ def pay_invoice(invoice_id: str, data: InvoicePayIn, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail=f"Cannot pay a {inv.status} invoice")
     inv.paid_amount = float(inv.paid_amount or 0.0) + float(data.paid_amount or 0.0)
     inv.payment_mode = data.payment_mode
+    if data.payment_mode == "upi" and getattr(data, "upi_ref", None):
+        try:
+            inv.upi_ref = data.upi_ref.strip() or None
+        except Exception:
+            pass
     if inv.paid_amount >= float(inv.amount or 0.0) and float(inv.amount or 0.0) > 0:
         inv.status = "paid"
         inv.paid_at = datetime.utcnow()
@@ -211,6 +253,50 @@ def cancel_invoice(invoice_id: str, db: Session = Depends(get_db),
     inv.status = "cancelled"
     db.commit()
     db.refresh(inv)
+    return _out(db, inv)
+
+
+@router.get("/upi", response_model=dict)
+def upi_info(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Clinic UPI ID for the pay-by-UPI flow (set CLINIC_UPI_ID in backend/.env)."""
+    vpa = (settings.CLINIC_UPI_ID or "").strip()
+    return {"configured": bool(vpa), "vpa": vpa or None,
+            "note": "Pay to this UPI ID, then submit the UTR/ref on the invoice." if vpa
+                    else "UPI payments are not configured by the clinic yet — pay at the desk."}
+
+
+@router.post("/invoices/{invoice_id}/upi-ref", response_model=InvoiceOut)
+def submit_upi_ref(invoice_id: str, upi_ref: str, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Patient submits their UPI payment reference (UTR) after paying to the
+    clinic VPA. Staff verifies the credit and marks the invoice paid."""
+    inv = db.query(Invoice).filter_by(id=invoice_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Not found")
+    _check_invoice_access(db, user, inv)
+    if inv.status in ("cancelled", "refunded", "paid"):
+        raise HTTPException(status_code=400, detail=f"Invoice is {inv.status}")
+    ref = (upi_ref or "").strip()
+    if len(ref) < 4:
+        raise HTTPException(status_code=400, detail="Enter the UPI reference / UTR number")
+    try:
+        inv.upi_ref = ref[:100]
+        inv.payment_mode = "upi"
+    except Exception:
+        pass
+    db.commit()
+    db.refresh(inv)
+    try:
+        from app.services.notify import notify as _notify
+        staff_note = f"UPI ref {ref} submitted for {inv.receipt_no} (Rs.{inv.amount}) — please verify and mark paid."
+        for role in ("receptionist", "admin"):
+            for u in db.query(User).filter_by(role=role).limit(10).all():
+                _notify(db, u.id, "upi_verify", "UPI payment needs verification", staff_note, link="/billing")
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     return _out(db, inv)
 
 
@@ -250,7 +336,7 @@ def invoice_receipt(invoice_id: str, db: Session = Depends(get_db),
     story = [
         Paragraph(f"<b>{('Dr. ' + doc.full_name) if doc else 'MedRec Clinic'}</b>"
                   f"{(' — ' + clinic) if clinic else ''}", styles["Title"]),
-        Paragraph(f"Receipt <b>{inv.receipt_no}</b> · {inv.issued_at.date() if inv.issued_at else inv.created_at.date()}", styles["Normal"]),
+        Paragraph(f"Receipt <b>{inv.receipt_no}</b> · {inv.issued_at.date() if inv.issued_at else inv.created_at.date()} · Bill type: <b>{(getattr(inv, 'category', None) or 'other').replace('_', ' ').title()}</b>", styles["Normal"]),
         HRFlowable(width="100%", thickness=1), Spacer(1, 6),
         Paragraph(f"Patient: <b>{pat.full_name if pat else ''}</b> ({pat.email if pat else ''})", styles["Normal"]),
         Paragraph(f"Amount: <b>Rs.{float(inv.amount or 0):.2f}</b> · Paid: Rs.{float(inv.paid_amount or 0):.2f} "

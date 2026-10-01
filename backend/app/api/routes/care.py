@@ -1,12 +1,13 @@
-"""Referrals, second opinions, Rx templates, announcements."""
+"""Referrals, Rx templates, announcements (referrals are the single
+doctor-to-doctor handoff; second opinions were removed as a duplicate)."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_doctor, require_admin, is_assigned
 from app.db.session import get_db
-from app.models.tables import Referral, SecondOpinion, RxTemplate, Announcement, User, Document
-from app.schemas.schemas import (ReferralIn, ReferralOut, SecondOpinionIn, SecondOpinionOut,
-                                 SecondOpinionAnswerIn, RxTemplateIn, RxTemplateOut,
+from app.models.tables import Referral, RxTemplate, Announcement, User, Document
+from app.schemas.schemas import (ReferralIn, ReferralOut,
+                                 RxTemplateIn, RxTemplateOut,
                                  AnnouncementIn, AnnouncementOut)
 from app.services.notify import notify
 
@@ -70,62 +71,6 @@ def referral_status(ref_id: str, status: str, db: Session = Depends(get_db), use
     r.status = status
     db.commit()
     return _ref_out(db, r)
-
-
-# ---- Second opinions ----
-def _so_out(db: Session, s: SecondOpinion) -> dict:
-    p = db.query(User).filter_by(id=s.patient_id).first()
-    t = db.query(User).filter_by(id=s.target_doctor_id).first()
-    return {"id": s.id, "patient_id": s.patient_id, "patient_name": p.full_name if p else None,
-            "target_doctor_id": s.target_doctor_id, "target_doctor_name": t.full_name if t else None,
-            "document_ids": s.document_ids, "question": s.question, "answer": s.answer,
-            "status": s.status, "created_at": s.created_at}
-
-
-@router.post("/second-opinions", response_model=SecondOpinionOut, status_code=201)
-def request_opinion(data: SecondOpinionIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role != "patient":
-        raise HTTPException(status_code=403, detail="Patients only")
-    t = db.query(User).filter_by(id=data.target_doctor_id, role="doctor").first()
-    if not t:
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    if data.document_ids:
-        owned = {d.id for d in db.query(Document).filter_by(owner_id=user.id).all()}
-        if any(i not in owned for i in data.document_ids):
-            raise HTTPException(status_code=400, detail="Unknown document")
-    s = SecondOpinion(patient_id=user.id, target_doctor_id=data.target_doctor_id,
-                      document_ids=data.document_ids, question=data.question)
-    db.add(s)
-    db.commit()
-    db.refresh(s)
-    notify(db, data.target_doctor_id, "second_opinion", f"Second-opinion request from {user.full_name}",
-           data.question[:200], link="/doctor")
-    return _so_out(db, s)
-
-
-@router.get("/second-opinions", response_model=list[SecondOpinionOut])
-def list_opinions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role == "patient":
-        rows = db.query(SecondOpinion).filter_by(patient_id=user.id).order_by(SecondOpinion.created_at.desc()).all()
-    elif user.role == "doctor":
-        rows = db.query(SecondOpinion).filter_by(target_doctor_id=user.id).order_by(SecondOpinion.created_at.desc()).all()
-    else:
-        rows = db.query(SecondOpinion).order_by(SecondOpinion.created_at.desc()).limit(200).all()
-    return [_so_out(db, s) for s in rows]
-
-
-@router.post("/second-opinions/{so_id}/answer", response_model=SecondOpinionOut)
-def answer_opinion(so_id: str, data: SecondOpinionAnswerIn, db: Session = Depends(get_db),
-                   user: User = Depends(require_doctor)):
-    s = db.query(SecondOpinion).filter_by(id=so_id, target_doctor_id=user.id).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Not found")
-    s.answer = data.answer
-    s.status = "answered"
-    db.commit()
-    notify(db, s.patient_id, "second_opinion", f"Dr. {user.full_name} answered your request",
-           data.answer[:200], link="/patient")
-    return _so_out(db, s)
 
 
 # ---- Rx templates ----

@@ -4,7 +4,7 @@ import api from '../../api'
 import VitalsTracker from '../../components/VitalsTracker'
 import VaccinationTracker from '../../components/VaccinationTracker'
 import CompareReports from '../../components/CompareReports'
-import { ReferralBox, SecondOpinionBox } from '../../components/CareTools'
+import { ReferralBox } from '../../components/CareTools'
 import { useDoctor } from './DoctorContext'
 
 export default function Care() {
@@ -21,16 +21,11 @@ export default function Care() {
       {!selectedId && (
         <div className="empty">
           Select a patient in <Link to="/doctor/patients">Patients</Link> to use referrals, vitals and comparisons.
-          Second-opinion inbox works without selection.
         </div>
       )}
       <section style={s.card}>
         <h3 className="sec-head"><span className="tile t-blue">🔁</span> Referrals{selectedPatient ? ` — ${selectedPatient.patient_name}` : ''}</h3>
         <ReferralBox role="doctor" patientId={selectedId} />
-      </section>
-      <section style={s.card}>
-        <h3 className="sec-head"><span className="tile t-violet">🧠</span> Second-Opinion Requests</h3>
-        <SecondOpinionBox role="doctor" />
       </section>
       {selectedId && (
         <section style={s.card}>

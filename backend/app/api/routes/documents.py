@@ -2,14 +2,14 @@ from datetime import date
 from pathlib import Path
 import re
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.core.deps import get_current_user
 from app.db.session import get_db
 from app.models.tables import Document, AiSummary, AiSummaryHistory, DocumentVersion, DoctorPatientAssignment, User
-from app.schemas.schemas import DocumentOut, AiSummaryOut, OverallSummaryOut, DocumentUpdateIn, DocumentVersionOut
+from app.schemas.schemas import DocumentOut, AiSummaryOut, OverallSummaryOut, OverallSummaryPdfIn, DocumentUpdateIn, DocumentVersionOut
 from app.services.ocr import extract_text
 from app.services.ollama import summarize_document, summarize_overall
 
@@ -123,6 +123,32 @@ def get_taxonomy():
             "kind_to_doc_type": KIND_TO_DOC_TYPE,
             "comparable_kinds": sorted(COMPARABLE_KINDS),
             "prescription_kinds": sorted(PRESCRIPTION_KINDS)}
+
+
+@router.get("/stats", response_model=dict)
+def doc_stats(patient_id: str | None = None, db: Session = Depends(get_db),
+              user: User = Depends(get_current_user)):
+    """File-manager counts: total + per type/category/kind for one patient.
+
+    Powers the sidebar list (All files, CBC (3), MRI (1)…). Patients are
+    auto-scoped to self; doctors pass an assigned patient_id.
+    NOTE: registered above /{doc_id} so "stats" isn't parsed as an ID.
+    """
+    from sqlalchemy import func
+    from app.core.deps import resolve_patient_id
+    pid = resolve_patient_id(db, user, patient_id)
+    base = db.query(Document).filter_by(owner_id=pid)
+    total = base.count()
+    by_type = dict(base.with_entities(Document.doc_type, func.count(Document.id))
+                   .group_by(Document.doc_type).all())
+    by_category = dict(base.filter(Document.category.isnot(None))
+                       .with_entities(Document.category, func.count(Document.id))
+                       .group_by(Document.category).all())
+    by_kind = dict(base.filter(Document.report_kind.isnot(None))
+                   .with_entities(Document.report_kind, func.count(Document.id))
+                   .group_by(Document.report_kind).all())
+    return {"patient_id": pid, "total": total, "by_type": by_type,
+            "by_category": by_category, "by_kind": by_kind}
 
 
 @router.post("/fix-labels", response_model=dict)
@@ -730,6 +756,47 @@ def overall_summary(language: str = "en", db: Session = Depends(get_db),
     ]
     text, used, model = summarize_overall(user.full_name, payload, language)
     return OverallSummaryOut(patient_id=user.id, summary_text=text, model_used=model, documents_used=used)
+
+
+@router.post("/patient/overall-summary/pdf")
+def overall_summary_pdf(data: OverallSummaryPdfIn, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Download an already-generated overall summary as PDF (no regeneration,
+    so this is instant — the AI runs only when Generate is clicked)."""
+    if user.role != "patient":
+        raise HTTPException(status_code=403, detail="Patients only")
+    from io import BytesIO
+    from xml.sax.saxutils import escape
+    text = (data.text or "").strip()[:15000]
+    if len(text) < 10:
+        raise HTTPException(status_code=422, detail="Summary text too short for a PDF")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.units import mm
+    buf = BytesIO()
+    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(f"<b>AI Health Overview — {escape(user.full_name)}</b>", styles["Title"]),
+        Paragraph(f"{date.today().isoformat()} · {escape(user.health_id or '')}", styles["Normal"]),
+        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
+    ]
+    for para in text.split("\n"):
+        para = para.strip()
+        if not para:
+            story.append(Spacer(1, 4))
+        else:
+            story.append(Paragraph(escape(para).replace("\n", "<br/>"), styles["Normal"]))
+            story.append(Spacer(1, 4))
+    story += [
+        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
+        Paragraph("<i>Informational summary only — not medical advice. Always consult your doctor.</i>",
+                  styles["Italic"]),
+    ]
+    pdf.build(story)
+    return Response(content=buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="overall-summary.pdf"'})
 
 
 @router.post("/auto-classify", response_model=dict)

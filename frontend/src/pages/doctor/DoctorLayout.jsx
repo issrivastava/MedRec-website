@@ -64,12 +64,12 @@ function Shell() {
               `dash-nav-item${(isActive || active === it.key) ? ' active' : ''}`
             }
           >
-            <span>{it.icon}</span> {it.label}
+            <span className="dash-ico" aria-hidden>{it.icon}</span> {it.label}
             {it.badge > 0 && <span className="badge">{it.badge}</span>}
           </NavLink>
         ))}
         <details className="dash-more">
-          <summary className="dash-nav-item"><span>⋯</span> More tools</summary>
+          <summary className="dash-nav-item"><span className="dash-ico" aria-hidden>⋯</span> More tools</summary>
           {more.map((it) => (
             <NavLink
               key={it.key}
@@ -78,7 +78,7 @@ function Shell() {
                 `dash-nav-item${(isActive || active === it.key) ? ' active' : ''}`
               }
             >
-              <span>{it.icon}</span> {it.label}
+              <span className="dash-ico" aria-hidden>{it.icon}</span> {it.label}
             </NavLink>
           ))}
         </details>
@@ -91,7 +91,7 @@ function Shell() {
               {user?.full_name}
             </span>
           </NavLink>
-          <button onClick={logout} className="dash-nav-item"><span>🚪</span> Logout</button>
+          <button onClick={logout} className="dash-nav-item"><span className="dash-ico" aria-hidden>🚪</span> Logout</button>
         </div>
       </aside>
       <div className="dash-main">

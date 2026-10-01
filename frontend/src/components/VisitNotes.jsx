@@ -54,6 +54,7 @@ export default function VisitNotes({ role, patientId }) {
 
   return (
     <div>
+      {role === 'patient' && <MedReminders />}
       {role === 'doctor' && patientId && (
         <form onSubmit={create} style={s.form}>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -112,10 +113,59 @@ export default function VisitNotes({ role, patientId }) {
               const a = document.createElement('a'); a.href = url; a.download = `rx-${n.id.slice(0, 8)}.pdf`
               document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000)
             }}>⬇ Rx PDF (signed)</button>
+            {role === 'patient' && (n.medicines || []).length > 0 && (
+              <button onClick={async () => {
+                if (!confirm('Ask your doctor for a refill of these medicines?')) return
+                const { data } = await api.post(`/api/visits/${n.id}/refill`)
+                alert(data.doctor ? `Refill requested — Dr. ${data.doctor} was notified.` : 'Refill requested.')
+              }} style={{ marginLeft: 6 }}>🔁 Request refill</button>
+            )}
           </div>
         </div>
       ))}
       {!notes.length && <p>No notes yet.</p>}
+    </div>
+  )
+}
+
+/* Daily medicine reminders: patient sets medicine + time, the backend
+   scheduler nudges every day (in-app + SMS when configured). */
+export function MedReminders() {
+  const [rows, setRows] = useState([])
+  const [form, setForm] = useState({ medicine_name: '', dosage: '', remind_at: '09:00' })
+  const load = async () => {
+    const { data } = await api.get('/api/wellness/med-reminders').catch(() => ({ data: [] }))
+    setRows(data || [])
+  }
+  useEffect(() => { load().catch(console.error) }, [])
+  const add = async (e) => {
+    e.preventDefault()
+    await api.post('/api/wellness/med-reminders', form)
+    setForm({ medicine_name: '', dosage: '', remind_at: '09:00' })
+    load()
+  }
+  const toggle = async (r) => {
+    await api.patch(`/api/wellness/med-reminders/${r.id}`,
+      { medicine_name: r.medicine_name, dosage: r.dosage || undefined, remind_at: r.remind_at, active: !r.active })
+    load()
+  }
+  return (
+    <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', borderRadius: 10, padding: 10, marginBottom: 12 }}>
+      <b>⏰ Daily medicine reminders</b>
+      <form onSubmit={add} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0' }}>
+        <input required placeholder="Medicine" value={form.medicine_name} onChange={(e) => setForm({ ...form, medicine_name: e.target.value })} style={s.input} />
+        <input placeholder="Dosage (optional)" value={form.dosage} onChange={(e) => setForm({ ...form, dosage: e.target.value })} style={s.input} />
+        <input type="time" value={form.remind_at} onChange={(e) => setForm({ ...form, remind_at: e.target.value })} required style={s.input} title="Remind me daily at" />
+        <button type="submit">Add reminder</button>
+      </form>
+      {rows.map((r) => (
+        <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', opacity: r.active ? 1 : 0.55, flexWrap: 'wrap' }}>
+          <span>💊 <b>{r.medicine_name}</b>{r.dosage ? ` — ${r.dosage}` : ''} · {r.remind_at} daily</span>
+          <button onClick={() => toggle(r)}>{r.active ? 'Pause' : 'Resume'}</button>
+          <button onClick={async () => { await api.delete(`/api/wellness/med-reminders/${r.id}`); load() }}>Delete</button>
+        </div>
+      ))}
+      {!rows.length && <small style={{ color: '#5d6b7a' }}>No reminders yet — add one above and MedRec nudges you every day.</small>}
     </div>
   )
 }

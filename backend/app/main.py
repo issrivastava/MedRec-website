@@ -38,6 +38,14 @@ except Exception:
 
 app = FastAPI(title="MedRec API", version="0.3.0")
 
+# Automatic reminders (appointment + medicine nudges): hourly daemon tick,
+# stdlib only, best-effort. Disable with AUTO_REMINDERS=False in backend/.env.
+try:
+    from app.services.scheduler import start_scheduler
+    start_scheduler()
+except Exception:
+    pass
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,

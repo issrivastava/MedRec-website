@@ -1,10 +1,11 @@
-"""Smoke tests for the directory endpoints (hospitals + JustDial).
+"""Smoke tests for the hospital directory (single Find-Doctors source).
 
+JustDial was removed as a duplicate source — hospitals are the only directory.
 These are pure functions over curated data — no database needed.
 Run from backend/:  pytest  (or  python -m pytest tests/)
 """
 
-from app.api.routes import hospitals, justdial
+from app.api.routes import hospitals
 
 
 def test_hospital_list_has_core_hospitals():
@@ -29,42 +30,6 @@ def test_hospital_doctors_filter_by_hospital():
     assert {i["hospital_id"] for i in data["results"]} == {"apollo"}
 
 
-def test_justdial_cities_cover_all_regions():
-    data = justdial.justdial_cities()
-    regions = {c["region"] for c in data["results"]}
-    assert {"Mumbai", "Delhi NCR", "Chennai", "Bengaluru",
-            "Hyderabad", "Kolkata", "Pune", "Ahmedabad"} <= regions
-
-
-def test_justdial_doctors_per_city():
-    data = justdial.justdial_doctors(city="Mumbai", q=None, specialty=None)
-    assert data["count"] > 0
-    assert {i["city_id"] for i in data["results"]} == {"mumbai"}
-    assert all(i["justdial_url"].startswith("https://www.justdial.com/Mumbai/")
-               for i in data["results"])
-
-
-def test_justdial_region_aliases_resolve():
-    # "Delhi NCR" (MedRec region) and "Bangalore" (JustDial slug) both work.
-    delhi = justdial.justdial_doctors(city="Delhi NCR", q="cardio", specialty=None)
-    assert delhi["count"] > 0
-    bengaluru = justdial.justdial_doctors(city="Bengaluru", q=None, specialty=None)
-    assert bengaluru["count"] > 0
-    assert all(i["justdial_city"] == "Bangalore" for i in bengaluru["results"])
-
-
-def test_justdial_unknown_city_is_empty_not_500():
-    data = justdial.justdial_doctors(city="Atlantis", q=None, specialty=None)
-    assert data["count"] == 0
-    assert data["results"] == []
-
-
-def test_justdial_known_nct_urls_pinned():
-    data = justdial.justdial_doctors(city="Mumbai", q=None, specialty="Dentistry")
-    assert data["count"] == 1
-    assert data["results"][0]["justdial_url"].endswith("/nct-10156331")
-
-
 def test_illnesses_alias_registered():
     # /api/illnesses/* must mirror /api/diseases/* (UI renamed, API kept).
     from app.api import api_router
@@ -73,3 +38,18 @@ def test_illnesses_alias_registered():
     for leaf in ("search", "detail", "popular"):
         assert f"/diseases/{leaf}" in paths
         assert f"/illnesses/{leaf}" in paths
+
+
+def test_removed_duplicate_routes_are_gone():
+    # Broadcasts, pre-visits, second opinions, site reviews and JustDial
+    # were removed as duplicates — they must not be registered anymore.
+    from app.api import api_router
+
+    paths = [getattr(r, "path", "") for r in api_router.routes]
+    for dead in ("/practice/broadcasts", "/practice/pre-visits", "/care/second-opinions",
+                 "/reviews/site", "/justdial"):
+        assert not any(p.startswith(dead) for p in paths), dead
+    # ...while the kept counterparts still are.
+    for live in ("/care/referrals", "/reviews/my", "/care/announcements",
+                 "/hospitals", "/practice/patient-groups"):
+        assert any(p.startswith(live) for p in paths), live

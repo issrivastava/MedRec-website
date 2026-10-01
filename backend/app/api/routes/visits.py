@@ -139,6 +139,34 @@ def delete_note(note_id: str, db: Session = Depends(get_db), user: User = Depend
     return None
 
 
+@router.post("/{note_id}/refill", response_model=dict)
+def request_refill(note_id: str, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Refill loop: patient asks the prescribing doctor for more of the same
+    medicines. Notifies the doctor in-app (+SMS when configured)."""
+    if user.role != "patient":
+        raise HTTPException(status_code=403, detail="Patients only")
+    v = db.query(VisitNote).filter_by(id=note_id, patient_id=user.id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+    meds = ", ".join(m.get("name", "") for m in (v.medicines or []) if m.get("name"))[:300]
+    notify(db, v.doctor_id, "refill_request",
+           f"Refill requested by {user.full_name}",
+           f"{v.title or 'Prescription'} ({v.visit_date or v.created_at.date()}): {meds or 'no medicines listed'}. "
+           f"Reply with a new prescription if appropriate.",
+           link="/doctor", ref=f"refill:{v.id}:{user.id}")
+    doc = db.query(User).filter_by(id=v.doctor_id).first()
+    try:
+        from app.models.tables import DoctorProfile
+        prof = db.query(DoctorProfile).filter_by(user_id=v.doctor_id).first()
+        phone = prof.phone if prof and prof.phone else None
+    except Exception:
+        phone = None
+    if phone:
+        notify_phone_sms(phone, f"MedRec: {user.full_name} requested a refill ({v.title or 'prescription'}).")
+    return {"ok": True, "doctor": doc.full_name if doc else None}
+
+
 @router.get("/{note_id}/rx-pdf")
 def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """E-prescription PDF with doctor letterhead + signature block.

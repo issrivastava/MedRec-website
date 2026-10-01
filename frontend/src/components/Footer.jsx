@@ -34,7 +34,6 @@ export default function Footer() {
               <b>My Account</b>
               <Link to="/profile">My Profile</Link>
               <Link to="/notifications">Notifications</Link>
-              {user.role !== 'admin' && <Link to="/timeline">Health Timeline</Link>}
             </div>
           )}
         </div>

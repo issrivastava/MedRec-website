@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ProfileProvider } from './context/ProfileContext'
+import { LangProvider } from './i18n.jsx'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import NeedHelp from './components/NeedHelp'
@@ -39,7 +40,6 @@ const DoctorProfilePage = lazy(() => import('./pages/doctor/DoctorProfile'))
 const Contact = lazy(() => import('./pages/Contact'))
 const Profile = lazy(() => import('./pages/Profile'))
 const Policy = lazy(() => import('./pages/Policy'))
-const Timeline = lazy(() => import('./pages/Timeline'))
 const Medicines = lazy(() => import('./pages/Medicines'))
 const Illnesses = lazy(() => import('./pages/Illnesses'))
 const FindDoctors = lazy(() => import('./pages/FindDoctors'))
@@ -60,6 +60,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ProfileProvider>
+      <LangProvider>
       <BrowserRouter>
         <SessionTimeout />
         <div className="app-shell">
@@ -106,7 +107,6 @@ export default function App() {
                 <Route path="reviews" element={<DoctorRatings />} />
                 <Route path="profile" element={<DoctorProfilePage />} />
               </Route>
-              <Route path="/timeline" element={<ProtectedRoute roles={['patient', 'doctor']}><Timeline /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute roles={['patient', 'doctor', 'admin', 'receptionist', 'nurse']}><Notifications /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Admin /></ProtectedRoute>} />
               <Route path="/billing" element={<ProtectedRoute roles={['patient', 'doctor', 'receptionist', 'nurse', 'admin']}><Billing /></ProtectedRoute>} />
@@ -120,6 +120,7 @@ export default function App() {
           <NeedHelp />
         </div>
       </BrowserRouter>
+      </LangProvider>
       </ProfileProvider>
     </AuthProvider>
   )

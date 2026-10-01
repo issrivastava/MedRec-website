@@ -1,11 +1,10 @@
 from fastapi import APIRouter
 from app.api.routes import auth, patients, doctors, documents, assignments, contact
-from app.api.routes import visits, scheduling, family, timeline, alerts, notifications, admin, export_pdf
+from app.api.routes import visits, scheduling, family, alerts, notifications, admin, export_pdf
 from app.api.routes import reviews, emergency, history, analytics
 from app.api.routes import medicines
 from app.api.routes import diseases
 from app.api.routes import hospitals
-from app.api.routes import justdial
 from app.api.routes import assistant
 from app.api.routes import wellness, sharing, messages, care, compare
 from app.api.routes import practice
@@ -23,7 +22,6 @@ api_router.include_router(contact.router, prefix="/contact", tags=["contact"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
 api_router.include_router(scheduling.router, prefix="/scheduling", tags=["scheduling"])
 api_router.include_router(family.router, prefix="/family", tags=["family"])
-api_router.include_router(timeline.router, prefix="/timeline", tags=["timeline"])
 api_router.include_router(alerts.router, prefix="/labs", tags=["labs"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
@@ -39,7 +37,6 @@ api_router.include_router(diseases.router, prefix="/diseases", tags=["diseases"]
 # New canonical name (UI says "Illnesses").
 api_router.include_router(diseases.router, prefix="/illnesses", tags=["illnesses"])
 api_router.include_router(hospitals.router, prefix="/hospitals", tags=["hospitals"])
-api_router.include_router(justdial.router, prefix="/justdial", tags=["justdial"])
 api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
 api_router.include_router(wellness.router, prefix="/wellness", tags=["wellness"])
 api_router.include_router(sharing.router, prefix="/sharing", tags=["sharing"])

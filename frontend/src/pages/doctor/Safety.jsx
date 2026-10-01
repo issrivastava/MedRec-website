@@ -39,7 +39,7 @@ function Audit() {
   return (
     <section style={s.card}>
       <h3 className="sec-head"><span className="tile t-blue">🛡️</span> My Audit Trail ({data.count})</h3>
-      <p style={s.sub}>Every record view, prescription, referral, broadcast and AI use is logged here — and patients are notified when you open their records.</p>
+      <p style={s.sub}>Every record view, prescription, referral and AI use is logged here — and patients are notified when you open their records.</p>
       {!!data.results.length && <button onClick={exportCsv} style={{ marginBottom: 8 }}>⬇ Export CSV (compliance)</button>}
       {data.results.map((a) => (
         <div key={a.id} style={s.row}>

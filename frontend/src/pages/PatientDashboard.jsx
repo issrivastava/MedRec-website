@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api, { AI_TIMEOUT } from '../api'
-import { DocumentPdfButton, ExportRecordButton, SummaryDownloadButton } from '../components/PdfButtons'
+import { DocumentPdfButton, ExportRecordButton, SummaryDownloadButton, BlobPdfButton } from '../components/PdfButtons'
 import { useAuth } from '../context/AuthContext'
 import { LANGS } from '../langs'
 import { Avatar } from '../components/People'
 import DashboardLayout from '../components/DashboardLayout'
 import { useProfile } from '../context/ProfileContext'
+import { useLang } from '../i18n.jsx'
 import VisitNotes from '../components/VisitNotes'
 import Appointments from '../components/Appointments'
 import MyClinicalHistory from '../components/MyClinicalHistory'
 import StructuredRecords from '../components/StructuredRecords'
 import ReportAnalytics from '../components/ReportAnalytics'
-import { kindsForCategory, kindLabel, kindIcon, docTypeForKind, categoryForKind, isPrescriptionDoc } from '../reportKinds'
+import { kindsForCategory, kindLabel, kindIcon, docTypeForKind, categoryForKind, isPrescriptionDoc, KIND_TO_CATEGORY, KIND_META } from '../reportKinds'
 import { AlertsPanel } from '../components/Alerts'
 import { calcAge, shortId } from '../utils'
 import { MyReviews } from '../components/Reviews'
@@ -24,23 +25,24 @@ import ChatBox from '../components/ChatBox'
 import ConnectById from '../components/ConnectById'
 import MyIdCard from '../components/MyIdCard'
 import CompareReports from '../components/CompareReports'
-import { SecondOpinionBox } from '../components/CareTools'
-import { VoiceReader } from '../components/CareTools'
-import SmartUpload, { ModelPicker, DocAIActions } from '../components/SmartUpload'
+import SmartUpload, { DocAIActions } from '../components/SmartUpload'
 import CameraCapture from '../components/CameraCapture'
-import { RecordCard, CountdownWidgets, Milestones, Dropzone, ToastHost, toast, Skeleton, EmptyState, FileTabs, PreviewDrawer } from '../components/HealthUX'
+import { RecordCard, CountdownWidgets, Milestones, Dropzone, ToastHost, toast, Skeleton, EmptyState, FileRail, PreviewDrawer } from '../components/HealthUX'
 
 export default function PatientDashboard() {
   const { user } = useAuth()
   const { activeId, activeName, setActive } = useProfile()
+  const { t } = useLang()
   const [tab, setTab] = useState('overview')
   const [profile, setProfile] = useState(null)
   const [docs, setDocs] = useState([])
+  const [docStats, setDocStats] = useState(null) // file-manager sidebar counts
   const [filter, setFilter] = useState({ q: '', doctor_name: '', doc_type: '', category: '', report_kind: '', group_by: 'date', member: '' })
   const [upload, setUpload] = useState({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: '' })
   const [file, setFile] = useState(null)
   const [summary, setSummary] = useState(null)
   const [overall, setOverall] = useState(null)
+  const [overallBusy, setOverallBusy] = useState(false)
   const [links, setLinks] = useState([])
   const [linkEmail, setLinkEmail] = useState('')
   const [msg, setMsg] = useState('')
@@ -51,15 +53,12 @@ export default function PatientDashboard() {
   const [vitalsCount, setVitalsCount] = useState(0)
   const [previewDoc, setPreviewDoc] = useState(null)
   const [drawerDoc, setDrawerDoc] = useState(null)
-  const [viewMode, setViewMode] = useState(() => { try { return localStorage.getItem('medrec_view') || 'grid' } catch { return 'grid' } })
   const [sortBy, setSortBy] = useState('date')
   const [selected, setSelected] = useState(new Set())
   const [trendIds, setTrendIds] = useState([])
   const [docsLoading, setDocsLoading] = useState(false)
   const [camMode, setCamMode] = useState(null) // null | 'photo' | 'video'
   const fileRef = useRef(null)
-
-  const setView = (v) => { setViewMode(v); try { localStorage.setItem('medrec_view', v) } catch { /* ignore */ } }
 
   // "/" focuses record search (global shortcut)
   useEffect(() => {
@@ -78,6 +77,16 @@ export default function PatientDashboard() {
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
+  // Onboarding: first-run checklist until the account has records + a doctor.
+  const [onboardDismissed, setOnboardDismissed] = useState(() => {
+    try { return localStorage.getItem('medrec_onboarded') === '1' } catch { return false }
+  })
+  const showOnboarding = !onboardDismissed && docs.length === 0 && links.length === 0
+  const dismissOnboarding = () => {
+    setOnboardDismissed(true)
+    try { localStorage.setItem('medrec_onboarded', '1') } catch { /* ignore */ }
+  }
+
   const load = async (searchQ) => {
     setDocsLoading(true)
     try {
@@ -87,6 +96,7 @@ export default function PatientDashboard() {
       api.get('/api/assignments/my'),
     ])
     setProfile(p); setDocs(d); setLinks(l)
+    api.get('/api/documents/stats').then(({ data }) => setDocStats(data)).catch(() => {})
     const [{ data: a }, { data: al }, { data: n }, { data: v }] = await Promise.all([
       api.get('/api/scheduling/appointments/my').catch(() => ({ data: [] })),
       api.get('/api/labs/alerts/my').catch(() => ({ data: [] })),
@@ -126,10 +136,6 @@ export default function PatientDashboard() {
   // Tracks which query the current list came from so the client filter below
   // doesn't hide OCR matches, and restores the full list when cleared.
   const [serverQ, setServerQ] = useState('')
-  const [aiStatus, setAiStatus] = useState(null)
-  useEffect(() => {
-    api.get('/api/documents/ai-status').then(({ data }) => setAiStatus(data)).catch(() => {})
-  }, [])
   useEffect(() => {
     const q = filter.q || ''
     if (q.length >= 2) {
@@ -172,6 +178,17 @@ export default function PatientDashboard() {
     })
   }, [docs, filter, serverQ])
 
+  // File-manager rail: picking a kind filters to it (category derived from
+  // the taxonomy so kind+category can never disagree); picking again clears.
+  const pickKind = (kind) => {
+    if (!kind) {
+      setFilter((f) => ({ ...f, report_kind: '', category: '', doc_type: '' }))
+    } else {
+      setFilter((f) => ({ ...f, report_kind: kind, category: KIND_TO_CATEGORY[kind] || f.category, doc_type: '' }))
+    }
+    setSelected(new Set())
+  }
+
   const clearFilters = () => {
     setFilter({ q: '', doctor_name: '', doc_type: '', category: '', report_kind: '', group_by: filter.group_by, member: '' })
     setSelected(new Set())
@@ -200,22 +217,6 @@ export default function PatientDashboard() {
     toast(`🗑 Deleted ${ok} file(s)`, ok ? 'ok' : 'err')
     load()
   }
-
-  const grouped = useMemo(() => {
-    if (filter.group_by === 'doctor') {
-      const g = {}
-      sorted.forEach((d) => { const k = d.doctor_name || 'Unknown doctor'; (g[k] ||= []).push(d) })
-      return g
-    }
-    if (filter.group_by === 'kind') {
-      const g = {}
-      sorted.forEach((d) => { const k = kindLabel(d.report_kind) || d.doc_type || 'Other'; (g[k] ||= []).push(d) })
-      return Object.fromEntries(Object.entries(g).sort())
-    }
-    const g = {}
-    sorted.forEach((d) => { const k = d.visit_date ? d.visit_date.slice(0, 7) : 'Undated'; (g[k] ||= []).push(d) })
-    return Object.fromEntries(Object.entries(g).sort().reverse())
-  }, [sorted, filter.group_by])
 
   const typeIcon = { report: ['📄', 't-blue'], prescription: ['🧾', 't-violet'], lab: ['🧪', 't-teal'], scan: ['🩻', 't-amber'], other: ['📁', 't-orange'] }
   const iconFor = (d) => ((d.file_mimetype || '').startsWith('video/')
@@ -320,12 +321,16 @@ export default function PatientDashboard() {
   }
 
   const loadOverall = async () => {
+    if (overallBusy) return
+    setOverallBusy(true)
     setOverall(null)
     try {
       const { data } = await api.get('/api/documents/patient/overall-summary', { params: { language: lang }, timeout: AI_TIMEOUT })
       setOverall(data)
     } catch (err) {
       setOverall({ summary_text: err.code === 'ECONNABORTED' ? 'AI is still working (cold start can take 1–2 min) — please try again in a minute.' : `Could not generate overall summary: ${err.response?.data?.detail || err.message}`, model_used: 'error', documents_used: 0 })
+    } finally {
+      setOverallBusy(false)
     }
   }
 
@@ -336,32 +341,29 @@ export default function PatientDashboard() {
   }
 
   const items = [
-    { key: 'overview', label: 'Overview', icon: '🏠', section: 'My care' },
-    { key: 'upload', label: 'Upload', icon: '📤', to: '/upload', section: 'My care' },
-    { key: 'records', label: 'My Records', icon: '🗂️', badge: docs.length, section: 'My care' },
-    { key: 'analytics', label: 'Analysis', icon: '📊', section: 'My care' },
-    { key: 'compare', label: 'What Changed', icon: '🔄', section: 'My care' },
-    { key: 'rx', label: 'Prescriptions', icon: '💊', badge: stats.notes, section: 'My care' },
-    { key: 'appts', label: 'Appointments', icon: '📅', badge: upcoming.length, section: 'My care' },
-    { key: 'vitals', label: 'Vitals', icon: '❤️', section: 'My care' },
-    { key: 'vaccines', label: 'Vaccines', icon: '💉', section: 'My care' },
-    { key: 'share', label: 'Share & QR', icon: '🔗', section: 'Doctors & chat' },
-    { key: 'chat', label: 'Chat Doctor', icon: '💬', badge: chatUnread, section: 'Doctors & chat' },
-    { key: 'opinions', label: '2nd Opinion', icon: '🧠', section: 'Doctors & chat' },
-    { key: 'reviews', label: 'My Reviews', icon: '⭐', section: 'Doctors & chat' },
-    { key: 'info', label: 'My Info', icon: '🧍', section: 'Doctors & chat' },
-    { key: 'history', label: 'Clinical History', icon: '📋', section: 'Doctors & chat' },
-    { key: 'medicines', label: 'Medicine Guide', icon: '💊', to: '/medicines', section: 'Discover' },
-    { key: 'illnesses', label: 'Illness Guide', icon: '🩺', to: '/illnesses', section: 'Discover' },
-    { key: 'finddoctors', label: 'Find Doctors', icon: '🏥', to: '/find-doctors', section: 'Discover' },
-    { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai', section: 'Discover' },
-    { key: 'timeline', label: 'Timeline', icon: '📈', to: '/timeline', section: 'Discover' },
+    { key: 'overview', label: t('tab.overview'), icon: '🏠', section: t('sec.mycare') },
+    { key: 'upload', label: t('tab.upload'), icon: '📤', to: '/upload', section: t('sec.mycare') },
+    { key: 'records', label: t('tab.records'), icon: '🗂️', badge: docs.length, section: t('sec.mycare') },
+    { key: 'trends', label: t('tab.trends'), icon: '📊', section: t('sec.mycare') },
+    { key: 'rx', label: t('tab.rx'), icon: '💊', badge: stats.notes, section: t('sec.mycare') },
+    { key: 'appts', label: t('tab.appts'), icon: '📅', badge: upcoming.length, section: t('sec.mycare') },
+    { key: 'vitals', label: t('tab.vitals'), icon: '❤️', section: t('sec.mycare') },
+    { key: 'vaccines', label: t('tab.vaccines'), icon: '💉', section: t('sec.mycare') },
+    { key: 'share', label: t('tab.share'), icon: '🔗', section: t('sec.doctorsChat') },
+    { key: 'chat', label: t('tab.chat'), icon: '💬', badge: chatUnread, section: t('sec.doctorsChat') },
+    { key: 'reviews', label: t('tab.reviews'), icon: '⭐', section: t('sec.doctorsChat') },
+    { key: 'info', label: t('tab.info'), icon: '🧍', section: t('sec.doctorsChat') },
+    { key: 'history', label: t('tab.history'), icon: '📋', section: t('sec.doctorsChat') },
+    { key: 'medicines', label: t('tab.medicines'), icon: '💊', to: '/medicines', section: t('sec.discover') },
+    { key: 'illnesses', label: t('tab.illnesses'), icon: '🩺', to: '/illnesses', section: t('sec.discover') },
+    { key: 'finddoctors', label: t('tab.finddoctors'), icon: '🏥', to: '/find-doctors', section: t('sec.discover') },
+    { key: 'askai', label: t('tab.askai'), icon: '🤖', to: '/ask-ai', section: t('sec.discover') },
   ]
 
   return (
     <DashboardLayout
-      title={`Welcome back${firstName ? `, ${firstName}` : ''}`}
-      subtitle="Your health command center — records, visits and doctors in one calm place."
+      title={`${t('dash.welcome')}${firstName ? `, ${firstName}` : ''}`}
+      subtitle={t('dash.subtitle')}
       meta={
         <>
           <span className="pill pill-ok">📄 {docs.length} documents</span>
@@ -375,31 +377,51 @@ export default function PatientDashboard() {
 
       {tab === 'overview' && (
         <div className="rise">
-          <section style={s.card}>
-            <h3 className="sec-head"><span className="tile t-rose">🆘</span> Emergency SOS</h3>
+          <section style={{ ...s.card, ...s.tintRose }}>
+            <h3 className="sec-head"><span className="tile t-rose">🆘</span> {t('sec.sos')}</h3>
             <p className="sec-sub">
               One tap alerts all your linked doctors and texts your emergency contact
               {profile?.emergency_contact ? <> (<b>{profile.emergency_contact}</b>)</> : ' — set one in My Info'}.
             </p>
             <EmergencyButton />
           </section>
+          {showOnboarding && (
+            <section style={{ ...s.card, ...s.tintTeal, borderLeft: '4px solid #0d9488' }}>
+              <h3 className="sec-head"><span className="tile t-teal">🚀</span> {t('onboard.title')}</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <OnboardRow done={docs.length > 0} text={t('onboard.s1')} action={() => setTab('records')} actionLabel="Upload →" />
+                <OnboardRow done={links.length > 0} text={t('onboard.s2')} action={() => document.getElementById('my-doctors')?.scrollIntoView({ behavior: 'smooth' })} actionLabel="Link →" />
+                <OnboardRow done={upcoming.length > 0} text={t('onboard.s3')} action={() => setTab('appts')} actionLabel="Book →" />
+              </div>
+              <button onClick={dismissOnboarding} style={{ ...s.linkBtn, marginTop: 8 }}>{t('onboard.dismiss')}</button>
+            </section>
+          )}
           <div className="stat-grid">
-            <div className="gstat g-orange"><div className="num">{docs.length}</div><div className="lbl">Documents</div><div className="sub">Reports, scans & labs</div><span className="big-icon">📄</span></div>
-            <div className="gstat g-teal"><div className="num">{upcoming.length}</div><div className="lbl">Upcoming visits</div><div className="sub">Booked appointments</div><span className="big-icon">📅</span></div>
-            <div className="gstat g-rose"><div className="num">{stats.alerts}</div><div className="lbl">Open alerts</div><div className="sub">Lab values to review</div><span className="big-icon">⚠️</span></div>
-            <div className="gstat g-violet"><div className="num">{stats.notes}</div><div className="lbl">Doctor notes</div><div className="sub">E-prescriptions</div><span className="big-icon">💊</span></div>
+            <div className="gstat g-orange" role="link" tabIndex={0} title="Open My Records"
+              onClick={() => setTab('records')} onKeyDown={(e) => e.key === 'Enter' && setTab('records')}
+              style={{ cursor: 'pointer' }}><div className="num">{docs.length}</div><div className="lbl">{t('tile.documents')}</div><div className="sub">{t('tile.documentsSub')}</div><span className="big-icon">📄</span></div>
+            <div className="gstat g-teal" role="link" tabIndex={0} title="Open Appointments"
+              onClick={() => setTab('appts')} onKeyDown={(e) => e.key === 'Enter' && setTab('appts')}
+              style={{ cursor: 'pointer' }}><div className="num">{upcoming.length}</div><div className="lbl">{t('tile.visits')}</div><div className="sub">{t('tile.visitsSub')}</div><span className="big-icon">📅</span></div>
+            <div className="gstat g-rose" role="link" tabIndex={0} title="Jump to Health Alerts"
+              onClick={() => document.getElementById('health-alerts')?.scrollIntoView({ behavior: 'smooth' })}
+              onKeyDown={(e) => e.key === 'Enter' && document.getElementById('health-alerts')?.scrollIntoView({ behavior: 'smooth' })}
+              style={{ cursor: 'pointer' }}><div className="num">{stats.alerts}</div><div className="lbl">{t('tile.alerts')}</div><div className="sub">{t('tile.alertsSub')}</div><span className="big-icon">⚠️</span></div>
+            <div className="gstat g-violet" role="link" tabIndex={0} title="Open Prescriptions"
+              onClick={() => setTab('rx')} onKeyDown={(e) => e.key === 'Enter' && setTab('rx')}
+              style={{ cursor: 'pointer' }}><div className="num">{stats.notes}</div><div className="lbl">{t('tile.notes')}</div><div className="sub">{t('tile.notesSub')}</div><span className="big-icon">💊</span></div>
           </div>
 
           <CountdownWidgets appointments={stats.appts} vaccinations={vaccines} notes={notesList} />
           <Milestones docs={docs} vitalsCount={vitalsCount} apptsKept={stats.appts.filter((a) => a.status === 'completed').length} />
 
           <div className="cols-2">
-            <section style={s.card}>
-              <h3 className="sec-head"><span className="tile t-rose">⚠️</span> Health Alerts</h3>
+            <section style={{ ...s.card, ...s.tintRose }} id="health-alerts">
+              <h3 className="sec-head"><span className="tile t-rose">⚠️</span> {t('sec.alerts')}</h3>
               <AlertsPanel />
             </section>
-            <section style={s.card}>
-              <h3 className="sec-head"><span className="tile t-teal">🔔</span> Coming Up</h3>
+            <section style={{ ...s.card, ...s.tintTeal }}>
+              <h3 className="sec-head"><span className="tile t-teal">🔔</span> {t('sec.comingUp')}</h3>
               {upcoming.slice(0, 3).map((a) => (
                 <div key={a.id} style={s.row}><span><b>{a.date}</b> at {a.start_time} — Dr. {a.doctor_name}</span><span className="pill pill-ok">{a.status}</span></div>
               ))}
@@ -407,13 +429,12 @@ export default function PatientDashboard() {
               <div className="quick-actions">
                 <button onClick={() => setTab('records')} style={s.primaryBtn}>＋ Upload report</button>
                 <ExportRecordButton />
-                <Link to="/timeline"><button>📈 Timeline</button></Link>
               </div>
             </section>
           </div>
 
-          <section style={s.card}>
-            <h3 className="sec-head"><span className="tile t-blue">👨‍⚕️</span> My Doctors</h3>
+          <section style={{ ...s.card, ...s.tintBlue }} id="my-doctors">
+            <h3 className="sec-head"><span className="tile t-blue">👨‍⚕️</span> {t('sec.doctors')}</h3>
             <MyIdCard user={user} compact />
             <ConnectById role="patient" onLinked={load} />
             <form onSubmit={linkDoctor} className="inline-form">
@@ -436,7 +457,7 @@ export default function PatientDashboard() {
       {tab === 'records' && (
         <div className="rise">
           <div className="cols-2" style={{ alignItems: 'start' }}>
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintOrange }}>
               <h3 className="sec-head"><span className="tile t-orange">📤</span> Scan / Upload</h3>
               <div style={{ marginBottom: 10 }}>
                 <Dropzone accept="image/*,video/*,.pdf,.doc,.docx,.csv,.txt" onFile={dropFile} />
@@ -512,20 +533,32 @@ export default function PatientDashboard() {
               </div>
             </section>
 
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintViolet }}>
               <h3 className="sec-head"><span className="tile t-violet">🤖</span> AI Health Overview</h3>
-              <ModelPicker />
-              {aiStatus && (
-                <div style={{ fontSize: 12, marginBottom: 8, color: aiStatus.ollama_ok ? '#166534' : '#b91c1c' }}>
-                  {aiStatus.ollama_ok ? `🟢 Ollama ready (${aiStatus.ollama_detail})` : `🔴 ${aiStatus.ollama_detail}`}
-                  {!aiStatus.tesseract_ok && <div style={{ color: '#92400e' }}>⚠️ {aiStatus.tesseract_detail}</div>}
-                </div>
-              )}
+              <p style={{ fontSize: 13, color: '#5d6b7a', margin: '0 0 10px' }}>
+                One plain-language summary across your recent reports — no settings, just Generate.
+              </p>
               <label>Summary language: <select value={lang} onChange={(e) => setLang(e.target.value)} style={s.input}>
                 {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select></label>
-              <div style={{ marginTop: 8 }}><button onClick={loadOverall} style={s.primaryBtn}>Generate overall summary</button></div>
-              {overall && <div style={s.summary}><b>Overall ({overall.model_used}, {overall.documents_used} docs):</b><VoiceReader text={overall.summary_text} /><p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p><SummaryDownloadButton title="MedRec overall summary" text={overall.summary_text} /></div>}
+              <div style={{ marginTop: 8 }}><button onClick={loadOverall} style={s.primaryBtn} disabled={overallBusy}>{overallBusy ? 'Generating… please wait' : 'Generate overall summary'}</button></div>
+              {overallBusy && <div style={s.summary}><b>Overall (working…)</b><p>Reading your reports… the first run can take 1–2 min. Please wait, don't click again.</p></div>}
+              {overall && (
+                <div style={s.summary}>
+                  <b>Overall health summary{overall.documents_used ? ` (${overall.documents_used} docs)` : ''}:</b>
+                  <VoiceReader text={overall.summary_text} />
+                  <p style={{ whiteSpace: 'pre-wrap' }}>{overall.summary_text}</p>
+                  {overall.model_used !== 'error' && (
+                    <BlobPdfButton
+                      idleLabel="⬇ Download PDF"
+                      filename="overall-summary.pdf"
+                      title="Download this summary as a PDF"
+                      fetchPdf={() => api.post('/api/documents/patient/overall-summary/pdf',
+                        { text: overall.summary_text, language: lang }, { responseType: 'blob' })}
+                    />
+                  )}
+                </div>
+              )}
               {summary && (
                 <div style={s.summary}>
                   <b>{summary.loading ? 'AI report (working…)' : `AI report (${summary.model_used || ''}${summary.model_used === 'offline-extractive-fallback' ? ' — offline, start Ollama for full AI' : ''}, ${summary.language || lang})`}:</b>
@@ -538,15 +571,11 @@ export default function PatientDashboard() {
             </section>
           </div>
 
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintAmber }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
               <h3 className="sec-head" style={{ margin: 0 }}><span className="tile t-amber">🗂️</span> Documents — showing {sorted.length} of {docs.length}</h3>
               <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span className="view-toggle" role="tablist" aria-label="Layout">
-                  <button className={viewMode === 'grid' ? 'on' : ''} onClick={() => setView('grid')} title="Grid view">▦</button>
-                  <button className={viewMode === 'list' ? 'on' : ''} onClick={() => setView('list')} title="List view">☰</button>
-                </span>
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={s.input} title="Sort">
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={s.input} title="Sort within each strip">
                   <option value="date">Newest first</option>
                   <option value="title">Title A–Z</option>
                 </select>
@@ -554,27 +583,13 @@ export default function PatientDashboard() {
                 <ExportRecordButton label="⬇ Export record PDF" />
               </span>
             </div>
-            <FileTabs docs={docs} value={filter.doc_type} onChange={(t) => { setFilter({ ...filter, doc_type: t }); setSelected(new Set()) }} />
+            <div className="file-manager">
+              <FileRail stats={docStats} activeKind={filter.report_kind} onPick={pickKind} />
+              <div className="file-main">
             <div className="sticky-bar">
             <div className="toolbar-row" style={{ marginBottom: 0 }}>
               <input id="records-search" placeholder="Search — title, hospital, doctor, OCR…  ( / )" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} style={s.input} />
               <input placeholder="Filter by doctor" value={filter.doctor_name} onChange={(e) => setFilter({ ...filter, doctor_name: e.target.value })} style={s.input} />
-              <select value={filter.category} onChange={(e) => setFilter({ ...filter, category: e.target.value, report_kind: '' })} style={s.input}>
-                <option value="">All categories</option>
-                <option value="lab">Pathology Lab</option>
-                <option value="imaging">Radiology / Imaging</option>
-                <option value="cardiology">Cardiac</option>
-                <option value="prescription">Prescription & Clinical</option>
-                <option value="other">Other</option>
-              </select>
-              <select value={filter.report_kind} onChange={(e) => setFilter({ ...filter, report_kind: e.target.value })} style={s.input}>
-                <option value="">All kinds (X-Ray, CBC, MRI, TSH, LFT…)</option>
-                {kindsForCategory(filter.category).map((k) => <option key={k.key} value={k.key}>{k.icon} {k.label}</option>)}
-              </select>
-              <select value={filter.group_by} onChange={(e) => setFilter({ ...filter, group_by: e.target.value })} style={s.input}>
-                <option value="date">Date-wise</option><option value="doctor">Doctor-wise</option>
-                <option value="kind">Report-kind-wise</option>
-              </select>
               {filtersActive && <button onClick={clearFilters} style={s.linkBtn}>✕ Clear filters</button>}
             </div>
             </div>
@@ -583,7 +598,7 @@ export default function PatientDashboard() {
                 <b>{selected.size} selected</b>
                 <button onClick={bulkDelete}>🗑 Delete selected</button>
                 <button
-                  onClick={() => { setTrendIds([...selected]); setSelected(new Set()); setTab('compare'); toast('📈 Opened trends with your selection — review ticks, then Generate', 'ok') }}
+                  onClick={() => { setTrendIds([...selected]); setSelected(new Set()); setTab('trends'); toast('📈 Opened trends with your selection — review ticks, then Generate', 'ok') }}
                   disabled={selected.size < 2}
                   title={selected.size < 2 ? 'Tick at least 2 reports for trends' : 'Graph + AI explanation for the selected reports'}>
                   📈 Trends + AI explanation
@@ -591,55 +606,58 @@ export default function PatientDashboard() {
                 <button onClick={() => setSelected(new Set())} style={s.linkBtn}>Clear selection</button>
               </div>
             )}
-            {docsLoading ? <Skeleton rows={4} /> : Object.entries(grouped).map(([group, items]) => (
-              <div key={group} style={{ marginBottom: 14 }}>
-                <h4 style={{ background: '#c9d4e2', padding: 6, borderRadius: 6 }}>{group} ({items.length})</h4>
-                <div className={viewMode === 'grid' ? 'record-grid' : ''} style={viewMode === 'list' ? { display: 'flex', flexDirection: 'column', gap: 8 } : undefined}>
-                  {items.map((d) => (
-                    <div key={d.id} style={{ position: 'relative' }}>
-                      <label style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                        <input type="checkbox" checked={selected.has(d.id)} onChange={() => toggleSelect(d.id)} aria-label={`Select ${d.title}`} />
-                      </label>
-                      <RecordCard d={d} icon={iconFor(d)[0]}
-                        onPreview={setDrawerDoc} onSummarize={summarize} />
-                      <div className="doc-actions" style={{ marginTop: 6 }}>
-                        <DocAIActions doc={d} onApplied={load} />
-                        <DocumentPdfButton doc={d} />
-                        <button onClick={async () => { await api.delete(`/api/documents/${d.id}`); toast('🗑 Deleted', 'ok'); load() }}>Delete</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            {docsLoading ? <Skeleton rows={4} /> : (
+              <div className="record-grid">
+                {sorted.map((d) => (
+                  <FileCard
+                    key={d.id} d={d} icon={iconFor(d)[0]}
+                    checked={selected.has(d.id)} onToggle={() => toggleSelect(d.id)}
+                    onPreview={setDrawerDoc} onSummarize={summarize}
+                    onApplied={load} toast={toast} reload={load}
+                  />
+                ))}
               </div>
-            ))}
+            )}
             <PreviewDrawer doc={drawerDoc} onClose={() => setDrawerDoc(null)}
               onSummarize={(id) => { setDrawerDoc(null); summarize(id) }}
               onDelete={async (id) => { await api.delete(`/api/documents/${id}`); setDrawerDoc(null); toast('🗑 Deleted', 'ok'); load() }} />
-            {!Object.keys(grouped).length && !docsLoading && (
+            {!sorted.length && !docsLoading && (
               docs.length
                 ? <EmptyState icon="🔍" title="Filters hide everything" hint={`No match among ${docs.length} file(s).`} action={<button onClick={clearFilters} style={s.linkBtn}>✕ Clear filters</button>} />
                 : <EmptyState icon="📭" title="No documents yet" hint="Scan your first report, prescription, MRI or ECG above to get started." action={<button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>＋ Upload</button>} />
             )}
+              </div>
+            </div>
           </section>
         </div>
       )}
 
-      {tab === 'analytics' && (
-        <section style={s.card} className="rise">
-          <h3 className="sec-head"><span className="tile t-blue">📊</span> Report Analysis — {activeName}</h3>
-          <ReportAnalytics docs={filtered} />
-        </section>
+      {tab === 'trends' && (
+        <div className="rise">
+          <section style={{ ...s.card, ...s.tintBlue }}>
+            <h3 className="sec-head"><span className="tile t-blue">📊</span> Trends & Analysis — {activeName}</h3>
+            <ReportAnalytics docs={filtered} />
+          </section>
+          <section style={{ ...s.card, ...s.tintTeal }}>
+            <h3 className="sec-head"><span className="tile t-teal">🔄</span> What Changed Since Last Report</h3>
+            <p style={{ fontSize: 13, color: '#475569', margin: '0 0 10px' }}>
+              Pick two lab reports for a side-by-side diff, or tick 2+ reports below for graphs + AI explanation.
+              {trendIds.length >= 2 && <> Pre-selected <b>{trendIds.length}</b> from My Records — <button onClick={() => setTrendIds([])} style={s.linkBtn}>clear</button>.</>}
+            </p>
+            <CompareReports docs={docs} initialTrendIds={trendIds} language={lang} />
+          </section>
+        </div>
       )}
 
       {tab === 'rx' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintGreen }} className="rise">
           <h3 className="sec-head"><span className="tile t-green">💊</span> Doctor Notes & E-Prescriptions</h3>
           <VisitNotes role="patient" />
         </section>
       )}
 
       {tab === 'appts' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintTeal }} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">📅</span> Appointments</h3>
           <div className="empty" style={{ textAlign: 'left', marginBottom: 12 }}>
             🏥 Need a hospital specialist?{' '}
@@ -649,26 +667,15 @@ export default function PatientDashboard() {
         </section>
       )}
 
-      {tab === 'compare' && (
-        <section style={s.card} className="rise">
-          <h3 className="sec-head"><span className="tile t-teal">🔄</span> What Changed Since Last Report</h3>
-          <p style={{ fontSize: 13, color: '#475569', margin: '0 0 10px' }}>
-            Two ways: quick 2-report diff above, or tick 2+ reports below for date-wise graphs + full AI explanation.
-            {trendIds.length >= 2 && <> Pre-selected <b>{trendIds.length}</b> from My Records — <button onClick={() => setTrendIds([])} style={s.linkBtn}>clear</button>.</>}
-          </p>
-          <CompareReports docs={docs} initialTrendIds={trendIds} language={lang} />
-        </section>
-      )}
-
       {tab === 'vitals' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintRose }} className="rise">
           <h3 className="sec-head"><span className="tile t-rose">❤️</span> Vitals Tracker</h3>
           <VitalsTracker role="patient" />
         </section>
       )}
 
       {tab === 'vaccines' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintViolet }} className="rise">
           <h3 className="sec-head"><span className="tile t-violet">💉</span> Vaccination Tracker</h3>
           <VaccinationTracker role="patient" />
         </section>
@@ -676,11 +683,11 @@ export default function PatientDashboard() {
 
       {tab === 'share' && (
         <div className="rise">
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintBlue }}>
             <h3 className="sec-head"><span className="tile t-blue">🔗</span> Secure Share + QR</h3>
             <ShareManager />
           </section>
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintAmber }}>
             <h3 className="sec-head"><span className="tile t-amber">🔐</span> Granular Consent — what doctors see</h3>
             <ConsentManager doctors={links} />
           </section>
@@ -688,7 +695,7 @@ export default function PatientDashboard() {
       )}
 
       {tab === 'chat' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintTeal }} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">💬</span> Chat With Doctor</h3>
           {!links.length && (
             <div className="empty" style={{ textAlign: 'left', marginBottom: 12 }}>
@@ -701,22 +708,15 @@ export default function PatientDashboard() {
         </section>
       )}
 
-      {tab === 'opinions' && (
-        <section style={s.card} className="rise">
-          <h3 className="sec-head"><span className="tile t-violet">🧠</span> Second Opinions</h3>
-          <SecondOpinionBox role="patient" doctors={links} />
-        </section>
-      )}
-
       {tab === 'reviews' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintAmber }} className="rise">
           <h3 className="sec-head"><span className="tile t-amber">⭐</span> My Reviews</h3>
           <MyReviews role="patient" doctors={links} />
         </section>
       )}
 
       {tab === 'info' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintOrange }} className="rise">
           <h3 className="sec-head"><span className="tile t-orange">🧍</span> My Info</h3>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <span className="pill pill-info" title={user?.id}>🪪 Patient ID: {user?.health_id || shortId(user?.id)}</span>
@@ -741,7 +741,7 @@ export default function PatientDashboard() {
       )}
 
       {tab === 'history' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintViolet }} className="rise">
           <h3 className="sec-head"><span className="tile t-violet">📋</span> Clinical History</h3>
           <p style={{ fontSize: 13, color: '#5d6b7a', margin: '0 0 10px' }}>
             Write your full clinical history in detail — conditions, surgeries, medicines,
@@ -756,8 +756,62 @@ export default function PatientDashboard() {
   )
 }
 
+function OnboardRow({ done, text, action, actionLabel }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ fontSize: 18 }}>{done ? '✅' : '⬜'}</span>
+      <span style={{ flex: 1, textDecoration: done ? 'line-through' : 'none', color: done ? '#5d6b7a' : 'inherit' }}>{text}</span>
+      {!done && <button onClick={action} style={{ whiteSpace: 'nowrap' }}>{actionLabel}</button>}
+    </div>
+  )
+}
+
+/* Compact file card for the single date-wise list: one kind pill +
+   Preview/PDF/Delete actions; AI actions live behind ⋯. Categories only
+   filter via the sidebar rail — never auto-shuffled. */
+function FileCard({ d, icon, checked, onToggle, onPreview, onSummarize, onApplied, toast, reload }) {
+  const [more, setMore] = useState(false)
+  const kindMeta = d.report_kind && KIND_META[d.report_kind]
+  return (
+    <div className={`slide-card${checked ? ' picked' : ''}`}>
+      <label className="slide-check">
+        <input type="checkbox" checked={checked} onChange={onToggle} aria-label={`Select ${d.title}`} />
+      </label>
+      <div className="slide-top" onClick={() => onPreview(d)} role="button" tabIndex={0}
+        onKeyDown={(e) => e.key === 'Enter' && onPreview(d)} title="Open preview">
+        <span className="record-ico">{icon || '📄'}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p className="record-title">{d.title}</p>
+          <p className="record-meta">{d.visit_date || 'Undated'}</p>
+          {kindMeta && <span className="badge badge-info">{kindMeta.icon} {kindMeta.label}</span>}
+        </div>
+      </div>
+      <div className="slide-actions">
+        <button type="button" onClick={() => onPreview(d)} title="Preview">👁</button>
+        <DocumentPdfButton doc={d} />
+        <button type="button" onClick={() => setMore((m) => !m)} title="More actions" aria-expanded={more}>⋯</button>
+      </div>
+      {more && (
+        <div className="slide-more">
+          {onSummarize && <button type="button" onClick={() => onSummarize(d.id)}>✦ AI Summary</button>}
+          <DocAIActions doc={d} onApplied={onApplied} />
+          <button type="button" onClick={async () => { await api.delete(`/api/documents/${d.id}`); toast('🗑 Deleted', 'ok'); reload() }}>Delete</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const s = {
-  card: { border: '1px solid #e9edf2', borderRadius: 16, padding: 'clamp(14px,3vw,20px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 2px rgba(16,24,40,.05)', minWidth: 0 },
+  card: { border: '1px solid #e9edf2', borderRadius: 18, padding: 'clamp(14px,3vw,20px)', marginBottom: 0, background: '#fff', boxShadow: '0 1px 2px rgba(16,24,40,.05)', minWidth: 0 },
+  /* Home-theme washes — spread over s.card so sections stop looking all-white. */
+  tintTeal: { background: 'linear-gradient(180deg,#f0fdfa 0%,#ffffff 62%)', borderColor: '#bfe6e0' },
+  tintBlue: { background: 'linear-gradient(180deg,#eff6ff 0%,#ffffff 62%)', borderColor: '#bfdbfe' },
+  tintViolet: { background: 'linear-gradient(180deg,#f5f3ff 0%,#ffffff 62%)', borderColor: '#ddd6fe' },
+  tintRose: { background: 'linear-gradient(180deg,#fef2f2 0%,#ffffff 62%)', borderColor: '#fecaca' },
+  tintAmber: { background: 'linear-gradient(180deg,#fffbeb 0%,#ffffff 62%)', borderColor: '#fde68a' },
+  tintGreen: { background: 'linear-gradient(180deg,#f0fdf4 0%,#ffffff 62%)', borderColor: '#bbf7d0' },
+  tintOrange: { background: 'linear-gradient(180deg,#fff7ed 0%,#ffffff 62%)', borderColor: '#fed7aa' },
   form: { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 },
   preview: { border: '1px dashed #d6dce4', borderRadius: 12, padding: 8, background: '#fbfcfd' },
   input: { padding: '10px 12px', fontSize: 14, minWidth: 0, maxWidth: '100%', borderRadius: 12 },

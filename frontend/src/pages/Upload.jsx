@@ -2,20 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api'
 import { kindsForCategory, docTypeForKind, categoryForKind, kindLabel } from '../reportKinds'
-import { useProfile } from '../context/ProfileContext'
 import CameraCapture from '../components/CameraCapture'
 import { Dropzone, ToastHost, toast } from '../components/HealthUX'
 
 const ACCEPT = '.pdf,.doc,.docx,.csv,.txt,image/*'
 
 export default function Upload() {
-  const { activeId } = useProfile()
   const [meta, setMeta] = useState({
     title: '', doc_type: 'report', category: '', report_kind: '',
     doctor_name: '', hospital: '', visit_date: '', notes: '',
     family_member_id: '',
   })
-  const [family, setFamily] = useState([])
   const [file, setFile] = useState(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
@@ -23,15 +20,6 @@ export default function Upload() {
   const [step, setStep] = useState(1) // 1 pick → 2 review → 3 done
   const [camMode, setCamMode] = useState(null) // null | 'photo' | 'video'
   const fileRef = useRef(null)
-
-  useEffect(() => {
-    api.get('/api/family').then(({ data }) => setFamily(data)).catch(() => {})
-  }, [])
-
-  // Default attribution to the active family profile
-  useEffect(() => {
-    setMeta((m) => ({ ...m, family_member_id: activeId || '' }))
-  }, [activeId])
 
   const onKindChange = (kind) => {
     // Kind is authoritative — derive Category + Type so a Prescription kind
@@ -121,7 +109,7 @@ export default function Upload() {
       toast('✅ Uploaded — lab values auto-checked', 'ok')
       setStep(3)
       setFile(null)
-      setMeta({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: activeId || '' })
+      setMeta({ title: '', doc_type: 'report', category: '', report_kind: '', doctor_name: '', hospital: '', visit_date: '', notes: '', family_member_id: '' })
     } catch (err) {
       const m = `Upload failed: ${err.response?.data?.detail || err.message}`
       setMsg(m)
@@ -178,10 +166,6 @@ export default function Upload() {
               <option value="lab">Lab</option>
               <option value="scan">Scan / Imaging</option>
               <option value="other">Other</option>
-            </select>
-            <select value={meta.family_member_id} onChange={(e) => setMeta({ ...meta, family_member_id: e.target.value })} style={s.input}>
-              <option value="">Belongs to: Me</option>
-              {family.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
           <div className="form-grid">

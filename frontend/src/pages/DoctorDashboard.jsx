@@ -18,7 +18,7 @@ import VaccinationTracker from '../components/VaccinationTracker'
 import ChatBox from '../components/ChatBox'
 import CompareReports from '../components/CompareReports'
 import RiskDashboard from '../components/RiskDashboard'
-import { RxTemplates, ReferralBox, SecondOpinionBox, VoiceReader } from '../components/CareTools'
+import { RxTemplates, ReferralBox, VoiceReader } from '../components/CareTools'
 import { DocAIActions } from '../components/SmartUpload'
 
 export default function DoctorDashboard() {
@@ -147,7 +147,7 @@ export default function DoctorDashboard() {
             <div className="gstat g-rose"><div className="num">{alerts.filter((a) => !a.acknowledged).length}</div><div className="lbl">Open alerts</div><span className="big-icon">⚠️</span></div>
           </div>
           <div className="cols-2">
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintTeal }}>
               <h3 className="sec-head"><span className="tile t-teal">📅</span> Today's Schedule</h3>
               {todays.map((a) => (
                 <div key={a.id} style={s.row}>
@@ -161,7 +161,7 @@ export default function DoctorDashboard() {
               {!todays.length && <div className="empty">No appointments today. Enjoy the breather! ☕</div>}
               <div style={{ marginTop: 10 }}><button onClick={() => setTab('schedule')}>Manage schedule →</button></div>
             </section>
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintOrange }}>
               <h3 className="sec-head"><span className="tile t-orange">👤</span> My Profile</h3>
               {profile && (
                 <div style={s.grid}>
@@ -182,7 +182,7 @@ export default function DoctorDashboard() {
 
       {tab === 'emergency' && (
         <div className="rise">
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintRose }}>
             <h3 className="sec-head"><span className="tile t-rose">🆘</span> Raise SOS for a patient</h3>
             {!selected
               ? <div className="empty">Select a patient in the Patients tab first, then raise an SOS here.</div>
@@ -195,7 +195,7 @@ export default function DoctorDashboard() {
               )}
             {sosFeedback && <p style={{ color: sosFeedback.startsWith('🚨') ? 'green' : 'red' }}>{sosFeedback}</p>}
           </section>
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintRose }}>
             <h3 className="sec-head"><span className="tile t-rose">🚨</span> Patient SOS Alerts</h3>
             <EmergencyInbox refreshKey={tab} />
           </section>
@@ -204,7 +204,7 @@ export default function DoctorDashboard() {
 
       {tab === 'patients' && (
         <div className="rise">
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintBlue }}>
             <h3 className="sec-head"><span className="tile t-blue">🧑‍🤝‍🧑</span> Assigned Patients</h3>
             <form onSubmit={addPatient} className="inline-form">
               <input placeholder="Patient email to add" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} style={s.input} />
@@ -233,7 +233,7 @@ export default function DoctorDashboard() {
 
           {info && (
             <div className="cols-2" style={{ alignItems: 'start' }}>
-              <section style={s.card}>
+              <section style={{ ...s.card, ...s.tintGreen }}>
                 <h3 className="sec-head"><span className="tile t-green">🧍</span> {info.user.full_name}</h3>
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8 }}>
                   <Avatar seed={info.user.id} name={info.user.full_name} size={56} />
@@ -251,7 +251,7 @@ export default function DoctorDashboard() {
                   <ClinicalHistoryRead profile={info.profile} />
                 </details>
               </section>
-              <section style={s.card}>
+              <section style={{ ...s.card, ...s.tintAmber }}>
                 <h3 className="sec-head"><span className="tile t-amber">🗂️</span> Records ({docs.length})</h3>
                 <div className="toolbar-row">
                   <select value={kindFilter.category} onChange={(e) => setKindFilter({ category: e.target.value, report_kind: '' })} style={s.input}>
@@ -304,11 +304,11 @@ export default function DoctorDashboard() {
 
       {tab === 'rx' && (
         <div className="rise">
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintViolet }}>
             <h3 className="sec-head"><span className="tile t-violet">📋</span> My Rx Templates (reusable + signed PDF)</h3>
             <RxTemplates />
           </section>
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintViolet }}>
             <h3 className="sec-head"><span className="tile t-violet">✍️</span> Write E-Prescription / Visit Note</h3>
             {!selected && <div className="empty">Select a patient in the Patients tab first.</div>}
             {selected && <p>Writing for: <b>{selName}</b></p>}
@@ -318,14 +318,14 @@ export default function DoctorDashboard() {
       )}
 
       {tab === 'schedule' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintTeal }} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">📅</span> Availability & Appointments</h3>
           <Appointments role="doctor" />
         </section>
       )}
 
       {tab === 'alerts' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintRose }} className="rise">
           <h3 className="sec-head"><span className="tile t-rose">⚠️</span> Lab Alerts {selected ? `— ${selName}` : ''}</h3>
           {!selected && <div className="empty">Select a patient in the Patients tab first.</div>}
           {selected && alerts.map((a) => (
@@ -336,19 +336,19 @@ export default function DoctorDashboard() {
         </section>
       )}
       {tab === 'reviews' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintAmber }} className="rise">
           <h3 className="sec-head"><span className="tile t-amber">⭐</span> My Reviews</h3>
           <MyReviews role="doctor" />
         </section>
       )}
       {tab === 'risk' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintRose }} className="rise">
           <h3 className="sec-head"><span className="tile t-rose">🔥</span> Patient Risk Board</h3>
           <RiskDashboard />
         </section>
       )}
       {tab === 'chat' && (
-        <section style={s.card} className="rise">
+        <section style={{ ...s.card, ...s.tintTeal }} className="rise">
           <h3 className="sec-head"><span className="tile t-teal">💬</span> Patient Chat</h3>
           {!selected && <p style={{ color: '#64748b' }}>Select a patient in Patients tab, or pick from inbox.</p>}
           <ChatBox role="doctor" patientId={selected} patients={patients} />
@@ -356,28 +356,24 @@ export default function DoctorDashboard() {
       )}
       {tab === 'care' && (
         <div className="rise">
-          <section style={s.card}>
+          <section style={{ ...s.card, ...s.tintBlue }}>
             <h3 className="sec-head"><span className="tile t-blue">🔁</span> Referrals</h3>
             <ReferralBox role="doctor" patientId={selected} />
           </section>
-          <section style={s.card}>
-            <h3 className="sec-head"><span className="tile t-violet">🧠</span> Second-Opinion Requests</h3>
-            <SecondOpinionBox role="doctor" />
-          </section>
           {selected && (
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintRose }}>
               <h3 className="sec-head"><span className="tile t-rose">❤️</span> Vitals — {selName}</h3>
               <VitalsTracker role="doctor" patientId={selected} />
             </section>
           )}
           {selected && (
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintViolet }}>
               <h3 className="sec-head"><span className="tile t-violet">💉</span> Vaccinations — {selName}</h3>
               <VaccinationTracker role="doctor" patientId={selected} />
             </section>
           )}
           {selected && (
-            <section style={s.card}>
+            <section style={{ ...s.card, ...s.tintTeal }}>
               <h3 className="sec-head"><span className="tile t-teal">🔄</span> What Changed — {selName}</h3>
               <CompareReports docs={docs} patientId={selected} />
             </section>
@@ -413,7 +409,15 @@ function ClinicalHistoryRead({ profile }) {
   )
 }
 
-const s = {  card: { border: '1px solid #f5f5f4', borderLeft: '4px solid #1e3a5f', borderRadius: 12, padding: 'clamp(12px,3vw,18px)', marginBottom: 16, background: '#fff', boxShadow: '0 1px 3px rgba(15,118,110,.08),0 4px 14px rgba(15,118,110,.07)', minWidth: 0 },
+const s = {  card: { border: '1px solid #e9edf2', borderRadius: 18, padding: 'clamp(12px,3vw,18px)', marginBottom: 0, background: '#fff', boxShadow: '0 1px 3px rgba(16,24,40,.06)', minWidth: 0 },
+  /* Home-theme washes — spread over s.card so sections stop looking all-white. */
+  tintTeal: { background: 'linear-gradient(180deg,#f0fdfa 0%,#ffffff 62%)', borderColor: '#bfe6e0' },
+  tintBlue: { background: 'linear-gradient(180deg,#eff6ff 0%,#ffffff 62%)', borderColor: '#bfdbfe' },
+  tintViolet: { background: 'linear-gradient(180deg,#f5f3ff 0%,#ffffff 62%)', borderColor: '#ddd6fe' },
+  tintRose: { background: 'linear-gradient(180deg,#fef2f2 0%,#ffffff 62%)', borderColor: '#fecaca' },
+  tintAmber: { background: 'linear-gradient(180deg,#fffbeb 0%,#ffffff 62%)', borderColor: '#fde68a' },
+  tintGreen: { background: 'linear-gradient(180deg,#f0fdf4 0%,#ffffff 62%)', borderColor: '#bbf7d0' },
+  tintOrange: { background: 'linear-gradient(180deg,#fff7ed 0%,#ffffff 62%)', borderColor: '#fed7aa' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(220px,100%),1fr))', gap: 8, marginBottom: 8 },
   input: { padding: 8, fontSize: 14, minWidth: 0, maxWidth: '100%' },
   patCard: { display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fff', border: '2px solid #e7e5e4', borderRadius: 14, padding: '8px 14px 8px 8px', cursor: 'pointer' },

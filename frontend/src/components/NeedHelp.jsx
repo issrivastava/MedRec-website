@@ -65,12 +65,6 @@ const ROUTE_HELP = {
       { q: 'Where is their clinical history?', a: 'Open the patient Records page → top card → "Clinical history (written by patient)" section.' },
     ],
   },
-  '/timeline': {
-    title: '📈 Timeline help',
-    faqs: [
-      { q: 'What shows here?', a: 'Every report, prescription and appointment on one scrollable page, newest first.' },
-    ],
-  },
   '/profile': {
     title: '👤 Profile help',
     faqs: [

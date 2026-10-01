@@ -1,12 +1,13 @@
-"""Vitals + vaccinations tracker."""
+"""Vitals + vaccinations tracker + daily medicine reminders."""
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, resolve_patient_id
 from app.db.session import get_db
-from app.models.tables import Vital, Vaccination, FamilyMember, User
-from app.schemas.schemas import VitalIn, VitalOut, VaccinationIn, VaccinationOut
+from app.models.tables import Vital, Vaccination, FamilyMember, MedicationReminder, User
+from app.schemas.schemas import (VitalIn, VitalOut, VaccinationIn, VaccinationOut,
+                                 MedReminderIn, MedReminderOut)
 
 router = APIRouter()
 
@@ -205,3 +206,55 @@ def vaccinations_due(patient_id: str | None = None, db: Session = Depends(get_db
             "due": [{"id": r.id, "vaccine": r.vaccine_name, "dose": r.dose_no,
                      "due_date": r.due_date, "member": members.get(r.family_member_id or ""),
                      "family_member_id": r.family_member_id} for r in due]}
+
+
+# ---- Daily medicine reminders (refill loop: patient sets, scheduler sends) ----
+@router.get("/med-reminders", response_model=list[MedReminderOut])
+def list_med_reminders(db: Session = Depends(get_db),
+                       user: User = Depends(get_current_user)):
+    if user.role != "patient":
+        raise HTTPException(status_code=403, detail="Patients only")
+    return db.query(MedicationReminder).filter_by(owner_id=user.id)\
+        .order_by(MedicationReminder.remind_at.asc()).all()
+
+
+@router.post("/med-reminders", response_model=MedReminderOut, status_code=201)
+def add_med_reminder(data: MedReminderIn, db: Session = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+    if user.role != "patient":
+        raise HTTPException(status_code=403, detail="Patients only")
+    try:
+        hh, mm = map(int, data.remind_at.split(":"))
+        assert 0 <= hh <= 23 and 0 <= mm <= 59
+    except Exception:
+        raise HTTPException(status_code=400, detail="remind_at must be HH:MM")
+    r = MedicationReminder(owner_id=user.id, medicine_name=data.medicine_name.strip(),
+                           dosage=data.dosage, remind_at=data.remind_at, active=data.active)
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+@router.patch("/med-reminders/{rem_id}", response_model=MedReminderOut)
+def update_med_reminder(rem_id: str, data: MedReminderIn, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    r = db.query(MedicationReminder).filter_by(id=rem_id, owner_id=user.id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(r, k, v)
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+@router.delete("/med-reminders/{rem_id}", status_code=204)
+def delete_med_reminder(rem_id: str, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    r = db.query(MedicationReminder).filter_by(id=rem_id, owner_id=user.id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(r)
+    db.commit()
+    return None

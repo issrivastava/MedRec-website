@@ -19,3 +19,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <App />
   </React.StrictMode>
 )
+
+// PWA: offline-first app shell (API always network-first — see public/sw.js).
+// Skipped on native (Capacitor) shells and insecure contexts.
+if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+}

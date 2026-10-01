@@ -19,7 +19,7 @@ def test_baseline_upgrades_stale_sqlite(tmp_path):
 
     with eng.connect() as c:
         version = c.execute(text("select version_num from alembic_version")).scalar()
-    assert version == "0003_page_index"
+    assert version == "0005_bill_categories"
     cols = [c["name"] for c in inspect(eng).get_columns("users")]
     for expected in ("avatar_path", "firebase_uid", "phone", "token_version", "health_id",
                      "is_archived", "archived_at"):
@@ -35,4 +35,10 @@ def test_baseline_on_fresh_sqlite(tmp_path):
     tables = set(inspect(eng).get_table_names())
     assert {"users", "documents", "appointments", "messages",
             "invoices", "pharmacy_items", "pharmacy_dispenses",
-            "document_pages"} <= tables
+            "document_pages", "medication_reminders"} <= tables
+    # Removed duplicate features stay dropped.
+    assert not ({"site_reviews", "second_opinions",
+                 "doctor_broadcasts", "pre_visits"} & tables)
+    cols = [c["name"] for c in inspect(eng).get_columns("invoices")]
+    assert "upi_ref" in cols
+    assert "category" in cols

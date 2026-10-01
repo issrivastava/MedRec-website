@@ -50,7 +50,7 @@ def stats(db: Session = Depends(get_db), user: User = Depends(require_admin)):
 @router.get("/activity", response_model=dict)
 def activity(db: Session = Depends(get_db), user: User = Depends(require_admin)):
     """Extended admin insight: new-feature usage + recent signups + risk counts."""
-    from app.models.tables import Vital, Vaccination, ShareLink, Message, Referral, SecondOpinion, Announcement
+    from app.models.tables import Vital, Vaccination, ShareLink, Message, Referral, Announcement
     def _count(model):
         try:
             return db.query(func.count(model.id)).scalar() or 0
@@ -67,7 +67,7 @@ def activity(db: Session = Depends(get_db), user: User = Depends(require_admin))
     return {
         "vitals": _count(Vital), "vaccinations": _count(Vaccination),
         "share_links": _count(ShareLink), "messages": _count(Message),
-        "referrals": _count(Referral), "second_opinions": _count(SecondOpinion),
+        "referrals": _count(Referral),
         "announcements": _count(Announcement),
         "active_sos": risk_critical, "unacked_alerts": unacked,
         "recent_users": [{"name": u.full_name, "email": u.email, "role": u.role,

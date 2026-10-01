@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
-import { KIND_META, DOC_TYPES } from '../reportKinds'
+import { KIND_META, DOC_TYPES, REPORT_CATEGORIES } from '../reportKinds'
 
 /* Shared HealthUX widgets — zero new dependencies (SVG + CSS only). */
 
@@ -343,6 +343,51 @@ export function FileTabs({ docs = [], value = '', onChange }) {
         </button>
       ))}
     </div>
+  )
+}
+
+/* File-manager sidebar: All files + per-kind rows with counts
+   (CBC (3), MRI (1)…). Click filters, click again clears. Horizontal
+   scroll strip on mobile (see .file-rail CSS). */
+export function FileRail({ stats, activeKind, onPick }) {
+  const byKind = (stats && stats.by_kind) || {}
+  const total = (stats && stats.total) ?? 0
+  const sections = []
+  for (const [catKey, cat] of Object.entries(REPORT_CATEGORIES)) {
+    const rows = cat.kinds
+      .filter((k) => (byKind[k.key] || 0) > 0)
+      .map((k) => ({ ...k, count: byKind[k.key] }))
+    if (rows.length) sections.push({ key: catKey, label: cat.label, rows })
+  }
+  // Kinds present in data but missing from the taxonomy (legacy/custom).
+  const known = new Set(Object.values(REPORT_CATEGORIES).flatMap((c) => c.kinds.map((k) => k.key)))
+  const extra = Object.entries(byKind).filter(([k, n]) => !known.has(k) && n > 0)
+  if (extra.length) {
+    sections.push({
+      key: '_other', label: 'Other',
+      rows: extra.map(([k, n]) => ({ key: k, label: k.replace(/_/g, ' '), icon: '📁', count: n })),
+    })
+  }
+  return (
+    <nav className="file-rail" aria-label="Browse by file type">
+      <button type="button" onClick={() => onPick(null)}
+        className={`file-rail-item${!activeKind ? ' on' : ''}`}>
+        <span>🗂 All files</span><span className="file-rail-count">{total}</span>
+      </button>
+      {sections.map((sec) => (
+        <div key={sec.key} className="file-rail-sec">
+          <div className="file-rail-head">{sec.label}</div>
+          {sec.rows.map((r) => (
+            <button key={r.key} type="button"
+              onClick={() => onPick(activeKind === r.key ? null : r.key)}
+              title={`${r.label} — show only these`}
+              className={`file-rail-item${activeKind === r.key ? ' on' : ''}`}>
+              <span>{r.icon} {r.label}</span><span className="file-rail-count">{r.count}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
   )
 }
 

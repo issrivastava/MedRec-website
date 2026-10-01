@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     GEMINI_TIMEOUT_SEC: int = 60
     # Request safety nets
     MAX_PAGE_SIZE: int = 100  # upper bound for ?limit= pagination
+    # --- Clinic ops: UPI collect + automatic reminders ---
+    # Clinic UPI ID (VPA) shown on invoices for pay-by-UPI. Empty = UPI off.
+    CLINIC_UPI_ID: str = ""
+    # Daemon scheduler (stdlib thread, no new dependency): hourly tick that
+    # sends tomorrow's appointment reminders + due medicine nudges once daily.
+    # Set False to disable (e.g. when an external cron hits the endpoints).
+    AUTO_REMINDERS: bool = True
 
     @field_validator("SECRET_KEY")
     @classmethod
