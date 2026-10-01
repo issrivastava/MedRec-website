@@ -1,16 +1,16 @@
-import DiseaseLookup from '../components/DiseaseLookup'
+import IllnessLookup from '../components/IllnessLookup'
 
-export default function Diseases() {
+export default function Illnesses() {
   return (
     <div style={s.wrap} className="rise">
-      <h2 style={{ margin: '0 0 4px' }}>🩺 Disease Description</h2>
+      <h2 style={{ margin: '0 0 4px' }}>🩺 Illness Description</h2>
       <p style={{ color: '#5d6b7a', margin: '0 0 16px', maxWidth: 720 }}>
-        Search any disease for its overview, symptoms, causes, diagnosis,
+        Search any illness for its overview, symptoms, causes, diagnosis,
         treatment and prevention. Data comes from the free Wikipedia
         encyclopedia (no key needed), with a built-in offline guide as backup.
       </p>
       <section style={s.card}>
-        <DiseaseLookup />
+        <IllnessLookup />
       </section>
     </div>
   )

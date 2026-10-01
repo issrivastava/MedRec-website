@@ -26,14 +26,39 @@ _ATTEMPTS: dict[str, list] = {}
 _THROTTLE_WINDOW_SEC = 600
 
 
+def _retry_after_for(key: str) -> int:
+    """Seconds until the oldest hit in the window expires (for Retry-After)."""
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    hits = [t for t in _ATTEMPTS.get(key, []) if now - t < timedelta(seconds=_THROTTLE_WINDOW_SEC)]
+    if not hits:
+        return 60
+    oldest = min(hits)
+    remaining = int((_THROTTLE_WINDOW_SEC - (now - oldest).total_seconds())) + 1
+    return max(1, remaining)
+
+
 def _throttle_check(key: str, limit: int = 10) -> None:
     from datetime import datetime, timedelta
     now = datetime.utcnow()
     hits = [t for t in _ATTEMPTS.get(key, []) if now - t < timedelta(seconds=_THROTTLE_WINDOW_SEC)]
     if len(hits) >= limit:
-        raise HTTPException(status_code=429, detail="Too many attempts — try again in a few minutes")
+        raise HTTPException(status_code=429, detail="Too many attempts — try again in a few minutes",
+                            headers={"Retry-After": str(_retry_after_for(key))})
     hits.append(now)
     _ATTEMPTS[key] = hits
+
+
+def _otp_cooldown_headers(exc: ValueError) -> dict:
+    """Parse 'Please wait Xs...' from otp_service into a Retry-After header."""
+    import re
+    try:
+        m = re.search(r"(\d+)\s*s", str(exc))
+        if m:
+            return {"Retry-After": str(max(1, int(m.group(1))))}
+    except Exception:
+        pass
+    return {"Retry-After": str(settings.OTP_RESEND_SECONDS)}
 
 
 def _throttle_reset(key: str) -> None:
@@ -85,8 +110,8 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail=str(exc))
         if db.query(User).filter(User.phone == phone).first():
             raise HTTPException(status_code=400, detail="Phone number already registered")
-    if data.role not in ("patient", "doctor", "admin"):
-        raise HTTPException(status_code=400, detail="Role must be patient, doctor or admin")
+    if data.role not in ("patient", "doctor", "admin", "receptionist", "nurse"):
+        raise HTTPException(status_code=400, detail="Role must be patient, doctor, receptionist, nurse or admin")
     if data.role == "admin":
         from app.core.config import settings
         if not settings.ADMIN_SIGNUP_KEY or data.admin_key != settings.ADMIN_SIGNUP_KEY:
@@ -143,19 +168,19 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     try:
         out = otp_service.request_otp(db, email=user.email, phone=user.phone, purpose="login")
     except ValueError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
+        raise HTTPException(status_code=429, detail=str(exc), headers=_otp_cooldown_headers(exc))
     # No delivery channel configured -> password is sufficient (local dev).
     # Frontend AuthContext.login() already handles a direct {access_token} reply.
     if out.get("sent_via") == "dev-log" and not settings.OTP_DEV_ECHO:
-        token = create_access_token(subject=user.id)
+        token = create_access_token(subject=user.id, token_version=getattr(user, "token_version", 0) or 0)
         return {"access_token": token, "token_type": "bearer", "user": user,
-                "otp_skipped": True,
+                "otp_skipped": True, "next_step": "session",
                 "warning": "OTP delivery not configured — logged in with password only. Set MAIL_*/SMS_* to enforce 2-step login."}
     # SECURITY: dev_code is only ever sent when the operator explicitly set
     # OTP_DEV_ECHO=True for local dev. Otherwise the client gets no code.
     dev_code = out.get("dev_code") if settings.OTP_DEV_ECHO else None
     return JSONResponse(status_code=202, content={
-        "otp_required": True,
+        "otp_required": True, "next_step": "otp",
         "identifier": user.email,
         "sent_via": out["sent_via"], "channels": out.get("channels", []),
         "expires_in_minutes": settings.OTP_EXPIRE_MINUTES,
@@ -166,6 +191,17 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.post("/refresh", response_model=TokenOut)
+def refresh_session(user: User = Depends(get_current_user)):
+    """Silent session renewal: valid token in → fresh token out (same token_version).
+
+    Frontend calls this proactively (e.g. on `token_expired` or before the
+    7-day expiry) so users don't get bounced to /login mid-task.
+    """
+    token = create_access_token(subject=user.id, token_version=getattr(user, "token_version", 0) or 0)
+    return {"access_token": token, "token_type": "bearer", "user": user}
 
 
 @router.put("/me", response_model=UserOut)
@@ -335,7 +371,7 @@ def firebase_login(data: FirebaseLoginIn, db: Session = Depends(get_db)):
             ensure_health_id(db, user)
         db.commit()  # persist uid/phone link if changed
         db.refresh(user)
-    token = create_access_token(subject=user.id)
+    token = create_access_token(subject=user.id, token_version=getattr(user, "token_version", 0) or 0)
     return {"access_token": token, "token_type": "bearer", "user": user}
 
 
@@ -392,7 +428,7 @@ def otp_request(data: OtpRequestIn, db: Session = Depends(get_db)):
     try:
         out = otp_service.request_otp(db, email=email, phone=phone, purpose=data.purpose)
     except ValueError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
+        raise HTTPException(status_code=429, detail=str(exc), headers=_otp_cooldown_headers(exc))
     # SECURITY: only echo the code when the operator explicitly enabled local-dev echo.
     dev_code = out.get("dev_code") if settings.OTP_DEV_ECHO else None
     return OtpRequestOut(sent_via=out["sent_via"], channels=out.get("channels", []),
@@ -425,7 +461,11 @@ def otp_verify(data: OtpVerifyIn, db: Session = Depends(get_db)):
     if data.purpose not in ("login", "register"):
         raise HTTPException(status_code=400, detail="Use /reset-password for password-reset codes")
     identifier = _verify_target(data.email, data.phone, data.health_id)
-    _throttle_check(f"otp:{identifier.lower()}", limit=8)
+    try:
+        _throttle_check(f"otp:{identifier.lower()}", limit=8)
+    except HTTPException as exc:
+        # _throttle_check already attaches Retry-After
+        raise exc
     resolved = _resolve_otp_identifier(db, identifier)
     if not otp_service.consume_otp(db, resolved, data.code, data.purpose):
         raise HTTPException(status_code=401, detail="Invalid or expired code")
@@ -433,7 +473,7 @@ def otp_verify(data: OtpVerifyIn, db: Session = Depends(get_db)):
     user = _find_user(db, identifier)
     if not user:
         raise HTTPException(status_code=404, detail="No account found — please register first")
-    token = create_access_token(subject=user.id)
+    token = create_access_token(subject=user.id, token_version=getattr(user, "token_version", 0) or 0)
     return {"access_token": token, "token_type": "bearer", "user": user}
 
 
@@ -455,6 +495,11 @@ def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="No account found")
     user.hashed_password = hash_password(data.new_password)
+    # Revoke all older sessions: get_current_user compares ver vs token_version.
+    try:
+        user.token_version = (getattr(user, "token_version", 0) or 0) + 1
+    except Exception:
+        pass
     db.commit()
     return {"ok": True, "message": "Password updated — please log in with your new password"}
 

@@ -28,17 +28,27 @@ def lab_results(
     test_key: str | None = None,
     family_member_id: str | None = None,
     patient_id: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """All persisted lab values for trends. Patients auto-scoped to self; doctors pass patient_id."""
     pid = resolve_patient_id(db, user, patient_id)
+    try:
+        limit = max(1, min(int(limit), 2000))
+    except Exception:
+        limit = 500
+    try:
+        offset = max(0, int(offset))
+    except Exception:
+        offset = 0
     q = db.query(LabResult).filter_by(owner_id=pid)
     if test_key:
         q = q.filter_by(test_key=test_key)
     if family_member_id:
         q = q.filter_by(family_member_id=family_member_id)
-    return q.order_by(LabResult.measured_at.asc().nullslast(), LabResult.created_at.asc()).all()
+    return q.order_by(LabResult.measured_at.asc().nullslast(), LabResult.created_at.asc()).limit(limit).offset(offset).all()
 
 
 @router.get("/labs/trends", response_model=dict)
@@ -53,7 +63,8 @@ def lab_trends(
     q = db.query(LabResult).filter_by(owner_id=pid)
     if family_member_id:
         q = q.filter_by(family_member_id=family_member_id)
-    rows = q.order_by(LabResult.measured_at.asc().nullslast(), LabResult.created_at.asc()).all()
+    # Cap rows so a decade of labs can't blow up the response (was unbounded .all()).
+    rows = q.order_by(LabResult.measured_at.asc().nullslast(), LabResult.created_at.asc()).limit(2000).all()
     grouped: dict = {}
     for r in rows:
         g = grouped.setdefault(r.test_key, {"display_name": r.display_name, "unit": r.unit, "points": []})
@@ -113,22 +124,30 @@ def list_versions(doc_id: str, db: Session = Depends(get_db), user: User = Depen
 def prescription_trends(
     family_member_id: str | None = None,
     patient_id: str | None = None,
+    limit: int = 200,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Every prescribed medicine over time, grouped by medicine name (per profile)."""
     pid = resolve_patient_id(db, user, patient_id)
+    try:
+        limit = max(1, min(int(limit), 500))
+    except Exception:
+        limit = 200
     q = db.query(VisitNote).filter_by(patient_id=pid)
     # Family filter only if column exists (fresh + migrated DBs)
     try:
         if family_member_id:
             q = q.filter_by(family_member_id=family_member_id)
-        rows = q.order_by(VisitNote.visit_date.desc().nullslast(), VisitNote.created_at.desc()).all()
+        rows = q.order_by(VisitNote.visit_date.desc().nullslast(), VisitNote.created_at.desc()).limit(limit).all()
     except Exception:
-        rows = db.query(VisitNote).filter_by(patient_id=pid).all()
+        rows = db.query(VisitNote).filter_by(patient_id=pid).limit(limit).all()
+    # Bulk-fetch doctor names once (was one query per visit note).
+    doctor_ids = list({v.doctor_id for v in rows}) if rows else []
+    doctors = {u.id: u for u in db.query(User).filter(User.id.in_(doctor_ids)).all()} if doctor_ids else {}
     grouped: dict[str, list] = defaultdict(list)
     for v in rows:
-        doc = db.query(User).filter_by(id=v.doctor_id).first()
+        doc = doctors.get(v.doctor_id)
         when = v.visit_date.isoformat() if v.visit_date else v.created_at.date().isoformat()
         for m in v.medicines or []:
             name = (m.get("name") if isinstance(m, dict) else str(m)) or "Unknown"
@@ -169,7 +188,11 @@ def analytics_overview(
     docs = dq.count()
     labs = lq.count()
     prescriptions = vq.filter_by(note_type="prescription").count() if hasattr(VisitNote, "note_type") else 0
-    tests = sorted({r.test_key for r in lq.all()})
+    # Distinct in DB (was loading every lab row into Python just for keys).
+    try:
+        tests = sorted(r[0] for r in lq.with_entities(LabResult.test_key).distinct().all() if r[0])
+    except Exception:
+        tests = sorted({r.test_key for r in lq.limit(2000).all()})
     return {"patient_id": pid, "documents": docs, "lab_values": labs, "prescriptions": prescriptions,
             "tracked_tests": tests}
 
@@ -181,23 +204,40 @@ def risk_dashboard(db: Session = Depends(get_db), user: User = Depends(get_curre
     from app.models.tables import (DoctorPatientAssignment, HealthAlert, EmergencyAlert,
                                    Vaccination)
     from datetime import date
+    from sqlalchemy import func
     if user.role == "doctor":
-        links = db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id).all()
+        links = db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id).limit(200).all()
         pids = [l.patient_id for l in links]
     elif user.role == "patient":
         pids = [user.id]
     else:
         pids = [u.id for u in db.query(User).filter_by(role="patient").limit(200).all()]
+    if not pids:
+        return {"count": 0, "critical": 0, "watch": 0, "patients": []}
+    # Bulk-fetch names once + grouped counts (was 1 + 4 queries per patient).
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(pids)).all()}
+    sos_counts = dict(db.query(EmergencyAlert.patient_id, func.count())
+                      .filter(EmergencyAlert.patient_id.in_(pids), EmergencyAlert.status == "active")
+                      .group_by(EmergencyAlert.patient_id).all())
+    unacked_counts = dict(db.query(HealthAlert.patient_id, func.count())
+                          .filter(HealthAlert.patient_id.in_(pids), HealthAlert.acknowledged.is_(False))
+                          .group_by(HealthAlert.patient_id).all())
+    abnormal_counts = dict(db.query(LabResult.owner_id, func.count())
+                           .filter(LabResult.owner_id.in_(pids), LabResult.flag.in_(["low", "high"]))
+                           .group_by(LabResult.owner_id).all())
+    overdue_counts = dict(db.query(Vaccination.owner_id, func.count())
+                          .filter(Vaccination.owner_id.in_(pids), Vaccination.status == "due",
+                                  Vaccination.due_date < date.today())
+                          .group_by(Vaccination.owner_id).all())
     board = []
     for pid in pids:
-        p = db.query(User).filter_by(id=pid).first()
+        p = users.get(pid)
         if not p:
             continue
-        active_sos = db.query(EmergencyAlert).filter_by(patient_id=pid, status="active").count()
-        unacked = db.query(HealthAlert).filter_by(patient_id=pid, acknowledged=False).count()
-        abnormal = db.query(LabResult).filter_by(owner_id=pid).filter(LabResult.flag.in_(["low", "high"])).count()
-        overdue_vac = db.query(Vaccination).filter_by(owner_id=pid, status="due").filter(
-            Vaccination.due_date < date.today()).count()
+        active_sos = sos_counts.get(pid, 0)
+        unacked = unacked_counts.get(pid, 0)
+        abnormal = abnormal_counts.get(pid, 0)
+        overdue_vac = overdue_counts.get(pid, 0)
         score = active_sos * 10 + unacked * 3 + min(abnormal, 10) + overdue_vac
         level = "critical" if score >= 10 else ("watch" if score >= 3 else "stable")
         board.append({"patient_id": pid, "patient_name": p.full_name, "patient_email": p.email,

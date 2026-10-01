@@ -184,7 +184,7 @@ export default function Profile() {
             <p style={{ fontSize: 13, color: '#5d6b7a' }}>
               Edit medical details in your dashboard →{' '}
               <Link to={dashboard} style={{ fontWeight: 700 }}>
-                {user?.role === 'doctor' ? 'Doctor profile' : 'Family & Info / Clinical History'}
+                {user?.role === 'doctor' ? 'Doctor profile' : 'My Info / Clinical History'}
               </Link>
             </p>
           )}

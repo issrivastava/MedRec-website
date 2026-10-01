@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import AuthSplit from '../components/AuthSplit'
-import { SPECIALIZATIONS } from '../specializations'
 
 function friendlyError(e, fallback) {
   if (!e.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error' || String(e.message || '').toLowerCase().includes('network'))) {
@@ -21,13 +20,12 @@ export default function Login() {
   const [role, setRole] = useState(() => {
     try { return localStorage.getItem('medrec_last_role') === 'doctor' ? 'doctor' : 'patient' } catch { return 'patient' }
   })
-  const [specialization, setSpecialization] = useState('')
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState(false)
   const { firebaseConfigured, googleLogin, needsRole, completeRole } = useAuth()
   const nav = useNavigate()
-  const go = (u) => nav(u.role === 'doctor' ? '/doctor' : u.role === 'admin' ? '/admin' : '/patient')
+  const go = (u) => nav(u.role === 'doctor' ? '/doctor' : u.role === 'admin' ? '/admin' : (u.role === 'receptionist' || u.role === 'nurse') ? '/directory' : '/patient')
 
   const pickRole = (r) => {
     setRole(r)
@@ -36,13 +34,9 @@ export default function Login() {
 
   const submitGoogle = async () => {
     setErr(''); setInfo('')
-    if (role === 'doctor' && !specialization && !needsRole) {
-      setErr('Please select your specialization to continue as Doctor.')
-      return
-    }
     setBusy(true)
     try {
-      go(await googleLogin(role, role === 'doctor' ? specialization || null : null))
+      go(await googleLogin(role, null))
     } catch (e) {
       const msg = String(e.code || e.message || '')
       if (msg.includes('popup-closed') || msg.includes('cancelled')) setErr('Google sign-in was closed — try again.')
@@ -55,13 +49,9 @@ export default function Login() {
 
   const submitRole = async () => {
     setErr(''); setInfo('Finishing sign-in as ' + role + '…')
-    if (role === 'doctor' && !specialization) {
-      setErr('Please select your specialization to continue as Doctor.')
-      return
-    }
     setBusy(true)
     try {
-      go(await completeRole(role, role === 'doctor' ? specialization || null : null))
+      go(await completeRole(role, null))
     } catch (e) { setErr(friendlyError(e, 'Could not finish sign-in')) }
     finally { setBusy(false) }
   }
@@ -72,8 +62,9 @@ export default function Login() {
       'Plain-language AI summaries in 10 languages',
       'Your doctor reviews your history in one click',
     ]}>
-      <h2 style={{ marginTop: 0 }}>Login to MedRec</h2>
-      <p style={s.sub}>Sign in with Google — new here? Pick <b>Patient</b> or <b>Doctor</b> below and we&apos;ll create your account automatically.</p>
+      <span className="pill pill-info" style={{ marginBottom: 10 }}>Welcome back</span>
+      <h2 style={{ margin: '6px 0 6px', fontSize: 24, letterSpacing: '-0.02em' }}>Login to MedRec</h2>
+      <p style={s.sub}>Sign in with Google — new here? Pick <b>Patient</b> or <b>Doctor</b> and we&apos;ll create your account automatically.</p>
 
       {needsRole ? (
         <div style={s.roleBox}>
@@ -83,12 +74,6 @@ export default function Login() {
             <option value="patient">Patient — I want care</option>
             <option value="doctor">Doctor — I provide care</option>
           </select>
-          {role === 'doctor' && (
-            <select value={specialization} onChange={(e) => setSpecialization(e.target.value)} style={s.input} required aria-label="Specialization">
-              <option value="">Select specialization…</option>
-              {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
-            </select>
-          )}
           <button onClick={submitRole} style={s.btn} disabled={busy}>{busy ? 'Please wait…' : `Continue as ${role}`}</button>
           {err && <p style={{ color: 'red' }}>{err}</p>}
           {info && <p style={{ color: 'green' }}>{info}</p>}
@@ -100,12 +85,6 @@ export default function Login() {
             <option value="patient">Patient — I want care</option>
             <option value="doctor">Doctor — I provide care</option>
           </select>
-          {role === 'doctor' && (
-            <select value={specialization} onChange={(e) => setSpecialization(e.target.value)} style={s.input} aria-label="Specialization">
-              <option value="">Select specialization…</option>
-              {SPECIALIZATIONS.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
-            </select>
-          )}
           {!firebaseConfigured ? (
             <div style={s.note}>
               <b>Google login is hidden because Firebase isn&apos;t connected yet.</b>
@@ -123,7 +102,7 @@ export default function Login() {
               </button>
               <p style={s.hint}>
                 {role === 'doctor'
-                  ? 'Doctors: pick Doctor + specialization above. First sign-in creates your doctor account.'
+                  ? 'Doctors: pick Doctor above. First sign-in creates your doctor account.'
                   : 'Patients: first sign-in creates your patient account automatically.'}
               </p>
             </>
@@ -137,13 +116,13 @@ export default function Login() {
 }
 
 const s = {
-  sub: { fontSize: 14, color: '#475569', margin: '0 0 12px' },
-  label: { fontSize: 14, fontWeight: 700, marginBottom: 4, display: 'block' },
-  input: { padding: 10, fontSize: 15, width: '100%', maxWidth: '100%', boxSizing: 'border-box', marginBottom: 10 },
-  btn: { padding: 12, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', fontSize: 15, fontWeight: 700, width: '100%' },
-  googleBtn: { width: '100%', padding: 12, background: '#fff', border: '1px solid #ccc', cursor: 'pointer', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 },
-  gLogo: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#4285F4', color: '#fff', fontWeight: 800 },
-  hint: { fontSize: 13, color: '#64748b', margin: '8px 0 0' },
-  note: { background: '#fff8e6', border: '1px solid #f0d48a', padding: 10, borderRadius: 6, marginTop: 8 },
-  roleBox: { display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid #c9d4e2', background: '#eef2f7', padding: 16, borderRadius: 8 },
+  sub: { fontSize: 14, color: '#667085', margin: '0 0 16px', lineHeight: 1.6 },
+  label: { fontSize: 13, fontWeight: 650, marginBottom: 6, display: 'block', color: '#344054' },
+  input: { padding: '11px 13px', fontSize: 14.5, width: '100%', maxWidth: '100%', boxSizing: 'border-box', marginBottom: 10, borderRadius: 12 },
+  btn: { padding: 12, background: '#101828', color: '#fff', border: '1px solid #101828', cursor: 'pointer', fontSize: 15, fontWeight: 700, width: '100%', borderRadius: 12 },
+  googleBtn: { width: '100%', padding: 12, background: '#101828', border: '1px solid #101828', color: '#fff', cursor: 'pointer', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, marginTop: 4, borderRadius: 12 },
+  gLogo: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#fff', color: '#101828', fontWeight: 800, fontSize: 13 },
+  hint: { fontSize: 13, color: '#667085', margin: '10px 0 0' },
+  note: { background: '#fffaeb', border: '1px solid #fedf89', padding: 12, borderRadius: 12, marginTop: 8, fontSize: 13.5 },
+  roleBox: { display: 'flex', flexDirection: 'column', gap: 10, border: '1px solid #e9edf2', background: '#fbfcfd', padding: 16, borderRadius: 14 },
 }

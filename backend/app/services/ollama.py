@@ -77,8 +77,14 @@ def ping(timeout_sec: float = 3.0) -> tuple[bool, str]:
 
 
 def tesseract_available() -> bool:
-    import shutil
-    return shutil.which("tesseract") is not None
+    # ocr.tesseract_exe() also checks the default Windows install folders,
+    # since the UB-Mannheim installer doesn't add itself to PATH.
+    try:
+        from app.services.ocr import tesseract_exe
+        return tesseract_exe() is not None
+    except Exception:
+        import shutil
+        return shutil.which("tesseract") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +316,9 @@ def _parse_understand_json(text: str) -> dict:
             data = json.loads(trimmed)  # raises with real syntax error if still bad
         else:
             raise
-    # validate enums against the app taxonomy
+    # validate enums against the app taxonomy; kind is authoritative and
+    # ALWAYS re-derives category + doc_type so AI can never store
+    # kind=prescription with doc_type=report.
     from app.services.report_kinds import CATEGORIES, KIND_TO_CATEGORY, KIND_TO_DOC_TYPE
     if data.get("doc_type") not in ("report", "prescription", "lab", "scan", "other"):
         data["doc_type"] = "report"
@@ -320,9 +328,8 @@ def _parse_understand_json(text: str) -> dict:
     if kind not in KIND_TO_CATEGORY:
         data["report_kind"] = None
     else:
-        data["category"] = data.get("category") or KIND_TO_CATEGORY[kind]
-        if data["doc_type"] == "report" and KIND_TO_DOC_TYPE.get(kind) not in (None, "report"):
-            data["doc_type"] = KIND_TO_DOC_TYPE[kind]
+        data["category"] = KIND_TO_CATEGORY[kind]
+        data["doc_type"] = KIND_TO_DOC_TYPE[kind]
     if data.get("confidence") not in ("high", "medium", "low"):
         data["confidence"] = "low"
     for key in ("key_values", "medicines"):

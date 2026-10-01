@@ -1,15 +1,20 @@
 """Hospital doctors available for appointment — curated deep links.
 
-Bombay Hospital, Apollo Hospitals and Fortis Healthcare publish NO public
-booking API, so live availability cannot be pulled with a key. Instead this
-endpoint curates each hospital's real departments and links every specialty
-to that hospital's own doctor directory / booking pages, where each doctor
-card carries a live "Book Appointment" button.
+Bombay Hospital, Apollo Hospitals, Fortis Healthcare, Lilavati Hospital,
+Kokilaben Hospital and Nanavati Max publish NO public booking API, so live
+availability cannot be pulled with a key. Instead this endpoint curates each
+hospital's real departments and links every specialty to that hospital's own
+doctor directory / booking pages, where each doctor card carries a live
+"Book Appointment" button.
 
 Endpoints (all PUBLIC — no login needed):
   GET /api/hospitals/                    (hospital list)
   GET /api/hospitals/doctors?q=cardio&hospital=apollo
   GET /api/hospitals/specialties         (names grouped by hospital)
+
+Source of truth: this file. The frontend keeps an offline mirror
+(frontend/src/pages/FindDoctors.jsx FALLBACK_HOSPITALS) so links render
+when the backend is unreachable — update both when hospitals change.
 """
 
 from fastapi import APIRouter, Query
@@ -19,23 +24,51 @@ router = APIRouter()
 BOMBAY = "https://www.bombayhospital.com"
 APOLLO = "https://www.apollohospitals.com"
 FORTIS = "https://www.fortishealthcare.com"
+LILAVATI = "https://www.lilavatihospital.com"
+KOKILABEN = "https://www.kokilabenhospital.com"
+NANAVATI = "https://www.nanavatimaxhospital.org"
+
+LILAVATI_BOOK = "https://www.lilavatihospital.com/doctors/request-an-appointment"
+KOKILABEN_BOOK = "https://www.kokilabenhospital.com/patients/makeanappointment.html"
+NANAVATI_BOOK = "https://www.nanavatimaxhospital.org/book-an-appointment/"
 
 HOSPITALS: list[dict] = [
     {"id": "bombay",
      "name": "Bombay Hospital & Medical Research Centre",
      "cities": "Mumbai",
      "consultants_url": f"{BOMBAY}/consultants",
-     "contact_url": f"{BOMBAY}/contact"},
+     "contact_url": f"{BOMBAY}/contact",
+     "booking_url": f"{BOMBAY}/consultants"},
     {"id": "apollo",
      "name": "Apollo Hospitals",
      "cities": "Pan-India (Mumbai, Delhi, Chennai, Bangalore, Hyderabad, Kolkata…)",
      "consultants_url": f"{APOLLO}/doctors",
-     "contact_url": f"{APOLLO}/contact-us"},
+     "contact_url": f"{APOLLO}/contact-us",
+     "booking_url": f"{APOLLO}/doctors"},
     {"id": "fortis",
      "name": "Fortis Healthcare",
      "cities": "Pan-India (Mumbai, Delhi NCR, Bangalore, Chennai, Kolkata…)",
      "consultants_url": f"{FORTIS}/doctors",
-     "contact_url": f"{FORTIS}/contact-us"},
+     "contact_url": f"{FORTIS}/contact-us",
+     "booking_url": f"{FORTIS}/doctors"},
+    {"id": "lilavati",
+     "name": "Lilavati Hospital & Research Centre",
+     "cities": "Mumbai (Bandra West)",
+     "consultants_url": f"{LILAVATI}/doctors",
+     "contact_url": LILAVATI,
+     "booking_url": LILAVATI_BOOK},
+    {"id": "kokilaben",
+     "name": "Kokilaben Dhirubhai Ambani Hospital",
+     "cities": "Mumbai (Andheri West)",
+     "consultants_url": f"{KOKILABEN}/doctors",
+     "contact_url": KOKILABEN,
+     "booking_url": KOKILABEN_BOOK},
+    {"id": "nanavati",
+     "name": "Nanavati Max Super Speciality Hospital",
+     "cities": "Mumbai (Vile Parle West)",
+     "consultants_url": f"{NANAVATI}/find-a-doctor",
+     "contact_url": NANAVATI,
+     "booking_url": NANAVATI_BOOK},
 ]
 
 # (hospital_id, display name, booking URL, info URL or None, tags for search)
@@ -199,6 +232,103 @@ SPECIALTIES: list[tuple] = [
     ("fortis", "Endocrinology", f"{FORTIS}/doctors/speciality/endocrinology-44", None,
      ["hormone", "thyroid", "diabetes", "endocrinology"]),    ("fortis", "Critical Care", f"{FORTIS}/doctors/speciality/critical-care-65", None,
      ["icu", "critical", "emergency"]),
+    # ---- Lilavati Hospital, Mumbai (central appointment request page) ----
+    ("lilavati", "Cardiology", LILAVATI_BOOK, f"{LILAVATI}/specialities/cardiology",
+     ["cardio", "heart"]),
+    ("lilavati", "Neurology", LILAVATI_BOOK, f"{LILAVATI}/specialities/neurology",
+     ["neuro", "brain", "migraine", "epilepsy"]),
+    ("lilavati", "Orthopaedics", LILAVATI_BOOK, f"{LILAVATI}/specialities/orthopaedics",
+     ["ortho", "bone", "joint", "knee"]),
+    ("lilavati", "Gastroenterology", LILAVATI_BOOK, None,
+     ["gastro", "stomach", "liver", "digestive"]),
+    ("lilavati", "Nephrology", LILAVATI_BOOK, None,
+     ["kidney", "renal"]),
+    ("lilavati", "Urology", LILAVATI_BOOK, None,
+     ["urinary", "kidney stone", "prostate"]),
+    ("lilavati", "Oncology", LILAVATI_BOOK, None,
+     ["cancer", "oncology", "tumor"]),
+    ("lilavati", "Paediatrics", LILAVATI_BOOK, None,
+     ["child", "baby", "kids"]),
+    ("lilavati", "Gynaecology & Obstetrics", LILAVATI_BOOK, None,
+     ["pregnancy", "women", "gynae", "obstetrics"]),
+    ("lilavati", "Dermatology", LILAVATI_BOOK, None,
+     ["skin", "hair"]),
+    ("lilavati", "ENT", LILAVATI_BOOK, None,
+     ["ent", "ear", "nose", "throat"]),
+    ("lilavati", "Ophthalmology", LILAVATI_BOOK, None,
+     ["eye", "vision"]),
+    ("lilavati", "Endocrinology & Diabetes", LILAVATI_BOOK, None,
+     ["hormone", "thyroid", "diabetes", "sugar"]),
+    ("lilavati", "Pulmonology", LILAVATI_BOOK, None,
+     ["lungs", "asthma", "copd", "breathing"]),
+    ("lilavati", "General Medicine", LILAVATI_BOOK, None,
+     ["physician", "fever", "general", "infection", "flu"]),
+    # ---- Kokilaben Hospital, Mumbai (Make an Appointment page) ----
+    ("kokilaben", "Cardiology", KOKILABEN_BOOK, f"{KOKILABEN}/specialities/cardiology",
+     ["cardio", "heart"]),
+    ("kokilaben", "Neurology", KOKILABEN_BOOK, f"{KOKILABEN}/specialities/neurology",
+     ["neuro", "brain", "migraine", "epilepsy"]),
+    ("kokilaben", "Neurosurgery", KOKILABEN_BOOK, None,
+     ["neuro", "brain", "spine surgery", "spine"]),
+    ("kokilaben", "Orthopaedics", KOKILABEN_BOOK, None,
+     ["ortho", "bone", "joint", "knee"]),
+    ("kokilaben", "Gastroenterology", KOKILABEN_BOOK, None,
+     ["gastro", "stomach", "liver", "digestive"]),
+    ("kokilaben", "Nephrology", KOKILABEN_BOOK, None,
+     ["kidney", "renal"]),
+    ("kokilaben", "Urology", KOKILABEN_BOOK, None,
+     ["urinary", "kidney stone", "prostate"]),
+    ("kokilaben", "Oncology", KOKILABEN_BOOK, None,
+     ["cancer", "oncology", "tumor"]),
+    ("kokilaben", "Paediatrics", KOKILABEN_BOOK, None,
+     ["child", "baby", "kids"]),
+    ("kokilaben", "Gynaecology & Obstetrics", KOKILABEN_BOOK, None,
+     ["pregnancy", "women", "gynae", "obstetrics"]),
+    ("kokilaben", "Dermatology", KOKILABEN_BOOK, None,
+     ["skin", "hair"]),
+    ("kokilaben", "ENT", KOKILABEN_BOOK, None,
+     ["ent", "ear", "nose", "throat"]),
+    ("kokilaben", "Ophthalmology", KOKILABEN_BOOK, None,
+     ["eye", "vision"]),
+    ("kokilaben", "Endocrinology & Diabetes", KOKILABEN_BOOK, None,
+     ["hormone", "thyroid", "diabetes", "sugar"]),
+    ("kokilaben", "Pulmonology", KOKILABEN_BOOK, None,
+     ["lungs", "asthma", "copd", "breathing"]),
+    ("kokilaben", "General Medicine", KOKILABEN_BOOK, None,
+     ["physician", "fever", "general", "infection", "flu"]),
+    # ---- Nanavati Max, Mumbai (Book an Appointment page) ----
+    ("nanavati", "Cardiology", NANAVATI_BOOK, f"{NANAVATI}/speciality/cardiology",
+     ["cardio", "heart"]),
+    ("nanavati", "Neurology", NANAVATI_BOOK, f"{NANAVATI}/speciality/neurology",
+     ["neuro", "brain", "migraine", "epilepsy"]),
+    ("nanavati", "Neurosurgery", NANAVATI_BOOK, None,
+     ["neuro", "brain", "spine surgery", "spine"]),
+    ("nanavati", "Orthopaedics", NANAVATI_BOOK, None,
+     ["ortho", "bone", "joint", "knee"]),
+    ("nanavati", "Gastroenterology", NANAVATI_BOOK, None,
+     ["gastro", "stomach", "liver", "digestive"]),
+    ("nanavati", "Nephrology", NANAVATI_BOOK, None,
+     ["kidney", "renal"]),
+    ("nanavati", "Urology", NANAVATI_BOOK, None,
+     ["urinary", "kidney stone", "prostate"]),
+    ("nanavati", "Oncology", NANAVATI_BOOK, None,
+     ["cancer", "oncology", "tumor"]),
+    ("nanavati", "Paediatrics", NANAVATI_BOOK, None,
+     ["child", "baby", "kids"]),
+    ("nanavati", "Gynaecology & Obstetrics", NANAVATI_BOOK, None,
+     ["pregnancy", "women", "gynae", "obstetrics"]),
+    ("nanavati", "Dermatology", NANAVATI_BOOK, None,
+     ["skin", "hair"]),
+    ("nanavati", "ENT", NANAVATI_BOOK, None,
+     ["ent", "ear", "nose", "throat"]),
+    ("nanavati", "Ophthalmology", NANAVATI_BOOK, None,
+     ["eye", "vision"]),
+    ("nanavati", "Endocrinology & Diabetes", NANAVATI_BOOK, None,
+     ["hormone", "thyroid", "diabetes", "sugar"]),
+    ("nanavati", "Pulmonology", NANAVATI_BOOK, None,
+     ["lungs", "asthma", "copd", "breathing"]),
+    ("nanavati", "General Medicine", NANAVATI_BOOK, None,
+     ["physician", "fever", "general", "infection", "flu"]),
 ]
 
 _HOSP = {h["id"]: h for h in HOSPITALS}

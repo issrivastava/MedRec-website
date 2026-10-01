@@ -4,32 +4,32 @@ import { PhotoFrame, PHOTOS } from '../components/People'
 import { useAuth } from '../context/AuthContext'
 
 const FEATURES = [
-  { icon: '📱', tile: 't-teal', title: 'Scan & store reports', text: 'Snap prescriptions, lab reports and scans with your phone camera. Everything lives in one secure place.' },
-  { icon: '🤖', tile: 't-violet', title: 'AI-generated summaries', text: 'Local Ollama AI turns every upload into plain language — findings, medicines and follow-ups.' },
-  { icon: '🗂️', tile: 't-amber', title: 'Date-wise & doctor-wise', text: 'Reports auto-grouped by visit month and doctor, with search and type filters.' },
-  { icon: '💊', tile: 't-green', title: 'E-prescriptions', text: 'Doctors send prescriptions and visit notes back to you, with dosage schedules and follow-up dates.' },
-  { icon: '📅', tile: 't-blue', title: 'Appointments', text: 'Set weekly availability, book in one click, and both sides get notified of changes.' },
-  { icon: '📈', tile: 't-rose', title: 'Health timeline', text: 'Every report, prescription and visit plotted on one scrollable timeline.' },
-  { icon: '⚠️', tile: 't-amber', title: 'Lab alerts', text: 'Abnormal values auto-flagged against doctor-approved ranges, with a checkup nudge.' },
-  { icon: '👪', tile: 't-teal', title: 'Family profiles', text: 'Manage kids, parents and elders — each with their own records — from one account.' },
-  { icon: '🌐', tile: 't-violet', title: 'AI in your language', text: 'Summaries in English, Hindi, Hinglish, Marathi, Tamil, Telugu, Bengali, Gujarati, Kannada, Malayalam.' },
-  { icon: '💊', tile: 't-green', title: 'Medicine descriptions', text: 'Search any medicine for uses, dosage and side effects — free drug data with Tata 1mg links.' },
-  { icon: '🩺', tile: 't-rose', title: 'Disease descriptions', text: 'Look up any condition — symptoms, causes, diagnosis, treatment and prevention, free.' },
-  { icon: '🤖', tile: 't-violet', title: 'Ask AI doubts', text: 'Chat with free Gemini AI — health and app doubts explained in simple words.' },
+  { icon: '📱', title: 'Scan & store reports', text: 'Snap prescriptions, labs and scans. Everything lives in one secure place.' },
+  { icon: '🤖', title: 'AI summaries', text: 'Plain-language findings, medicines and follow-ups from every upload.' },
+  { icon: '🗂️', title: 'Organized by visit', text: 'Auto-grouped by month and doctor, with search and filters.' },
+  { icon: '💊', title: 'E-prescriptions', text: 'Doctors send prescriptions and visit notes back with dosage schedules.' },
+  { icon: '📅', title: 'Appointments', text: 'Weekly availability, one-click booking, instant notifications.' },
+  { icon: '📈', title: 'Health timeline', text: 'Every report, prescription and visit on one scrollable timeline.' },
+  { icon: '⚠️', title: 'Lab alerts', text: 'Abnormal values auto-flagged with a gentle checkup nudge.' },
+  { icon: '👪', title: 'Family profiles', text: 'Kids, parents and elders — each with their own records.' },
+  { icon: '🌐', title: '10 languages', text: 'Summaries in English, Hindi, Hinglish, Marathi, Tamil and more.' },
+  { icon: '💊', title: 'Medicine guide', text: 'Uses, dosage and side effects with Tata 1mg links.' },
+  { icon: '🩺', title: 'Illness guide', text: 'Symptoms, causes, treatment and prevention — free.' },
+  { icon: '💬', title: 'Ask AI', text: 'Health and app doubts explained in simple words.' },
 ]
 
 const STEPS = [
-  { n: '1', title: 'Sign in with Google', text: 'Pick patient or doctor on login — your account is created automatically.' },
-  { n: '2', title: 'Build your record', text: 'Fill your info page, scan reports, link your doctor by email.' },
-  { n: '3', title: 'Get AI clarity', text: 'One tap turns any document into a summary you can actually understand.' },
-  { n: '4', title: 'Doctors take over', text: 'Your doctor picks you from their dropdown and reviews everything.' },
+  { n: '1', title: 'Sign in with Google', text: 'Pick patient or doctor — your account is created automatically.' },
+  { n: '2', title: 'Build your record', text: 'Fill your info, scan reports, link your doctor.' },
+  { n: '3', title: 'Get AI clarity', text: 'One tap turns any document into plain language.' },
+  { n: '4', title: 'Doctors take over', text: 'Your doctor reviews everything in one click.' },
 ]
 
 const FAQS = [
-  { q: 'Is my medical data private?', a: 'Yes. Doctors can only open records of patients explicitly assigned to them, and every view notifies the patient. We never sell your data.' },
-  { q: 'Do I need to install anything for the AI?', a: 'No. The AI runs on our servers via a self-hosted local model — your document text is never sent to third-party AI services.' },
+  { q: 'Is my medical data private?', a: 'Yes. Doctors only see patients explicitly assigned to them, and every view notifies the patient. We never sell your data.' },
+  { q: 'Do I need to install anything for the AI?', a: 'No. The AI runs on our servers — your document text is never sent to third-party AI services.' },
   { q: 'Can the AI diagnose me?', a: 'No, and it is designed not to. Summaries are informational only — always discuss them with your doctor.' },
-  { q: 'Is MedRec free?', a: 'Yes, the core product — records, AI summaries, appointments and timeline — is free for patients and doctors.' },
+  { q: 'Is MedRec free?', a: 'Yes — records, AI summaries, appointments and timeline are free for patients and doctors.' },
 ]
 
 export default function Landing() {
@@ -39,49 +39,60 @@ export default function Landing() {
 
   return (
     <div>
-      {/* HERO — split across the screen */}
-      <header style={s.hero}>
+      {/* HERO */}
+      <header>
         <div className="hero-grid">
           <div>
-            <span style={s.badge}>✨ Free for patients & doctors</span>
-            <h1 style={s.h1}>Your medical records, finally organized</h1>
-            <p style={s.sub}>
-              Patients scan and keep every report and prescription. Doctors review
-              assigned patients in one click. Local AI explains it all in plain words.
+            <span className="hero-badge"><span className="hero-badge-dot">✦</span> Free for patients & doctors</span>
+            <h1 className="hero-h1">Your medical records, <span className="accent">finally organized.</span></h1>
+            <p className="hero-sub">
+              Patients keep every report and prescription in one place.
+              Doctors review assigned patients in one click.
+              AI explains it all in plain words.
             </p>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div className="hero-actions">
               {user ? (
-                <Link to={dashboard} style={s.primary}>Go to my Dashboard →</Link>
+                <Link to={dashboard} className="btn-hero-primary">Go to my Dashboard →</Link>
               ) : (
                 <>
-                  <Link to="/login" style={s.primary}>Login / Sign up with Google →</Link>
+                  <Link to="/login" className="btn-hero-primary">Get started free →</Link>
+                  <Link to="/login" className="btn-hero-secondary">Find doctors</Link>
                 </>
               )}
             </div>
-            <div style={s.welcome}>
-              <span style={s.welcomeIcon}>🩺</span>
-              <div>
-                <div style={s.welcomeTitle}>Welcome to MedRec!</div>
-                <div style={s.welcomeSub}>Your health history — organized, explained, and always with you.</div>
-              </div>
+            <div className="hero-proof">
+              <span className="hero-proof-item">✓ No credit card</span>
+              <span className="hero-proof-item">✓ 10 languages</span>
+              <span className="hero-proof-item">✓ Private by design</span>
             </div>
           </div>
 
-          {/* Product visual — classic framed photo + info cards */}
-          <div style={s.visual} className="hero-visual">
-            <div className="hero-chips">
+          <div className="hero-visual">
+            <div className="hero-visual-card">
               <div className="hero-photo">
-                <PhotoFrame src={PHOTOS.heroDoctor} alt="Doctor reviewing records on a tablet"
-                  style={{ border: 0, height: '100%' }} />
+                <PhotoFrame src={PHOTOS.heroDoctor} alt="Doctor reviewing records on a tablet" style={{ border: 0, height: '100%' }} />
               </div>
-              <div className="hero-chip">Appointment booked — Tue 10:00</div>
-              <div className="hero-chip">AI summary ready in Hindi</div>
-            </div>
-            <div className="hero-mock" style={{ marginTop: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <b>Blood Test — Jan</b><span className="pill pill-ok">lab</span>
+              {/* Product preview — what MedRec actually does with your uploads */}
+              <div className="hero-mock" style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <b>✦ AI summary — your lab report</b><span className="pill pill-ok">plain words</span>
+                </div>
+                <p style={{ fontSize: 13.5, color: '#344054', margin: '8px 0 0', lineHeight: 1.6 }}>
+                  Hemoglobin slightly low — add iron-rich foods, recheck in 4 weeks.
+                  Everything else looks normal.
+                </p>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                  <span className="pill pill-info">🗂️ Auto-organized by visit</span>
+                  <span className="pill pill-info">🌐 10 languages</span>
+                </div>
               </div>
-              <div style={{ fontSize: 13, color: '#5d6b7a', marginTop: 4 }}>Dr. Sharma · City Hospital</div>
+              <div className="hero-mock" style={{ marginTop: 10 }}>
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                  <span><b style={{ fontSize: 19 }}>24</b><br /><small style={{ color: '#667085' }}>Reports kept</small></span>
+                  <span><b style={{ fontSize: 19 }}>6</b><br /><small style={{ color: '#667085' }}>Prescriptions</small></span>
+                  <span><b style={{ fontSize: 19 }}>1</b><br /><small style={{ color: '#667085' }}>Health timeline</small></span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -89,110 +100,71 @@ export default function Landing() {
 
       {/* FEATURES */}
       <section className="landing-section">
-        <span className="kicker-rule" />
-        <p style={s.kicker}>EVERYTHING IN ONE PLACE</p>
-        <h2 style={s.h2}>What you can do with MedRec</h2>
-        <div style={s.grid}>
+        <p className="kicker">Everything in one place</p>
+        <h2 className="h2-min">What you can do with MedRec</h2>
+        <p className="sub-min">Twelve essentials, zero clutter. Built for real clinic workflows.</p>
+        <div className="feat-grid">
           {FEATURES.map((f) => (
-            <div key={f.title} className="feat-card" style={s.card}>
-              <span className={`tile ${f.tile}`} style={s.iconTile}>{f.icon}</span>
-              <h3 style={s.cardH}>{f.title}</h3>
-              <p style={s.cardP}>{f.text}</p>
+            <div key={f.title} className="feat-card">
+              <span className="tile">{f.icon}</span>
+              <h3>{f.title}</h3>
+              <p>{f.text}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* PHOTO BAND */}
-      <section style={s.band}>
-        <PhotoFrame src={PHOTOS.careTeam} alt="Medical team"
-          style={{ position: 'absolute', inset: 0 }} />
-        <div className="band-overlay">
-          <h2 style={s.bandH}>Care, connected.</h2>
-          <p style={s.bandP}>Patients, doctors and families — finally looking at the same record.</p>
-          {!user && <Link to="/login" style={s.primary}>Join with Google →</Link>}
+      <section style={{ position: 'relative', minHeight: 320, display: 'flex', alignItems: 'center', overflow: 'hidden', background: '#101828', borderRadius: 24, margin: '0 clamp(14px,3vw,28px)', maxWidth: 1280 - 56 }}>
+        <PhotoFrame src={PHOTOS.careTeam} alt="Medical team" style={{ position: 'absolute', inset: 0 }} />
+        <div className="band-overlay" style={{ borderRadius: 24 }}>
+          <h2 style={{ margin: '0 0 8px', fontSize: 'clamp(24px,4vw,34px)', fontWeight: 800, letterSpacing: '-0.03em' }}>Care, connected.</h2>
+          <p style={{ margin: '0 0 18px', color: '#e8eef5', fontSize: 'clamp(15px,2vw,17px)' }}>Patients, doctors and families — finally looking at the same record.</p>
+          {!user && <Link to="/login" className="btn-hero-primary" style={{ background: '#fff', color: '#101828', borderColor: '#fff' }}>Join with Google →</Link>}
         </div>
       </section>
 
       {/* STEPS */}
-      <section className="landing-section" style={{ background: '#eef2f7', borderTop: '1px solid #c9d4e2', borderBottom: '1px solid #c9d4e2' }}>
-        <span className="kicker-rule" />
-        <p style={s.kicker}>GET STARTED IN MINUTES</p>
-        <h2 style={s.h2}>How it works</h2>
-        <div style={s.steps}>
-          {STEPS.map((st, i) => (
-            <div key={st.n} style={s.step}>
-              <div style={s.stepN}>{st.n}</div>
-              <div><b>{st.title}</b><p style={s.cardP}>{st.text}</p></div>
-              {i < STEPS.length - 1 && <div style={s.stepArrow}>→</div>}
+      <section className="landing-section">
+        <p className="kicker">Get started in minutes</p>
+        <h2 className="h2-min">How it works</h2>
+        <p className="sub-min">Four steps and your health history is organized forever.</p>
+        <div className="steps-min">
+          {STEPS.map((st) => (
+            <div key={st.n} className="step-min">
+              <div className="step-n">{st.n}</div>
+              <div><b>{st.title}</b><p style={{ margin: '6px 0 0', color: '#667085', fontSize: 14 }}>{st.text}</p></div>
             </div>
           ))}
         </div>
       </section>
 
       {/* FAQ */}
-      <section className="landing-section">
-        <span className="kicker-rule" />
-        <p style={s.kicker}>GOOD TO KNOW</p>
-        <h2 style={s.h2}>Frequently asked questions</h2>
+      <section className="landing-section" style={{ paddingTop: 0 }}>
+        <p className="kicker">Good to know</p>
+        <h2 className="h2-min">Frequently asked questions</h2>
         <div className="faq-grid">
           {FAQS.map((f, i) => (
-            <div key={f.q} style={s.faq}>
-              <button onClick={() => setOpenFaq(openFaq === i ? null : i)} style={s.faqQ}>
-                {f.q} <span style={s.faqIcon}>{openFaq === i ? '−' : '+'}</span>
+            <div key={f.q} className="faq-min">
+              <button onClick={() => setOpenFaq(openFaq === i ? null : i)}>
+                {f.q} <span style={{ background: '#f1f4f8', borderRadius: '50%', minWidth: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{openFaq === i ? '−' : '+'}</span>
               </button>
-              {openFaq === i && <p style={s.faqA}>{f.a}</p>}
+              {openFaq === i && <p style={{ margin: 0, padding: '0 18px 16px', color: '#667085', fontSize: 14 }}>{f.a}</p>}
             </div>
           ))}
         </div>
       </section>
 
       {/* CTA */}
-      <section style={{ background: '#1a2e45', color: '#fff', borderTop: '4px solid #8a6d3b' }}>
-        <div className="cta-band">
-          <div>
-            <h2 style={{ margin: '0 0 8px', fontSize: 30, fontFamily: 'Georgia, serif', color: '#fff' }}>Stop losing prescriptions in drawers.</h2>
-            <p style={{ margin: '0 0 18px', color: '#c9d4e2' }}>Join MedRec free — your health history, organized forever.</p>
-            {!user && <Link to="/login" style={s.ctaBtn}>Get started with Google →</Link>}
+      <section className="landing-section" style={{ paddingTop: 0 }}>
+        <div className="cta-card">
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <h2>Stop losing prescriptions in drawers.</h2>
+            <p>Join MedRec free — your health history, organized forever.</p>
+            {!user && <Link to="/login" className="cta-white-btn">Get started with Google →</Link>}
           </div>
         </div>
       </section>
     </div>
   )
-}
-
-const s = {
-  hero: { background: '#ffffff', color: '#1a2e45', borderBottom: '1px solid #dfe3e8' },
-  badge: { background: '#eef2f7', border: '1px solid #1a2e45', borderRadius: 4, padding: '5px 16px', fontSize: 13, fontWeight: 700, color: '#1a2e45' },
-  h1: { fontSize: 'clamp(28px,4.5vw,52px)', margin: '18px 0 12px', letterSpacing: '0', lineHeight: 1.15, color: '#1a2e45', fontFamily: 'Georgia, serif', fontWeight: 700 },
-  sub: { fontSize: 'clamp(15px,2vw,18px)', margin: '0 0 26px', color: '#5d6b7a', maxWidth: 560 },
-  primary: { padding: '13px 26px', background: '#1a2e45', color: '#fff', fontWeight: 700, borderRadius: 4, textDecoration: 'none', border: '1px solid #1a2e45', display: 'inline-block' },
-  secondary: { padding: '13px 26px', border: '1px solid #1a2e45', color: '#1a2e45', fontWeight: 700, borderRadius: 4, textDecoration: 'none', background: '#fff', display: 'inline-block' },
-  welcome: { display: 'flex', gap: 14, alignItems: 'center', marginTop: 28, background: '#f8f9fa', border: '1px solid #dfe3e8', borderLeft: '4px solid #1a2e45', borderRadius: 4, padding: '14px 18px', flexWrap: 'wrap', maxWidth: '100%' },
-  welcomeIcon: { fontSize: 40 },
-  welcomeTitle: { fontSize: 24, fontWeight: 700, fontFamily: 'Georgia, serif', color: '#1a2e45' },
-  welcomeSub: { color: '#5d6b7a', fontSize: 14 },
-  visual: { paddingRight: 12, minWidth: 0, maxWidth: '100%' },
-  band: { position: 'relative', minHeight: 340, display: 'flex', alignItems: 'center', overflow: 'hidden', background: '#1a2e45' },
-  bandH: { margin: '0 0 8px', fontSize: 'clamp(26px,4vw,36px)', fontFamily: 'Georgia, serif', color: '#fff' },
-  bandP: { margin: '0 0 18px', color: '#e8eef5', fontSize: 'clamp(15px,2vw,18px)' },
-  section: { width: '100%', padding: '52px 48px', background: '#fff' },
-  kicker: { color: '#8a6d3b', fontWeight: 700, fontSize: 13, letterSpacing: '0.12em', margin: '0 0 6px' },
-  h2: { fontSize: 30, margin: '0 0 26px', color: '#1a2e45', letterSpacing: '0', fontFamily: 'Georgia, serif' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(280px,100%),1fr))', gap: 16 },
-  card: { border: '1px solid #dfe3e8', borderRadius: 4, padding: 22, background: '#fff', boxShadow: 'none' },
-  quote: { border: '1px solid #d6c9a8', borderLeft: '4px solid #8a6d3b', borderRadius: 4, padding: 22, background: '#fff' },
-  iconTile: { width: 44, height: 44, fontSize: 22 },
-  cardH: { margin: '12px 0 6px', color: '#1a2e45', fontSize: 18, fontFamily: 'Georgia, serif' },
-  cardP: { margin: 0, color: '#5d6b7a' },
-  steps: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(230px,100%),1fr))', gap: 14 },
-  step: { display: 'flex', gap: 12, background: '#fff', borderRadius: 4, padding: 18, border: '1px solid #dfe3e8', position: 'relative' },
-  stepN: { background: '#1a2e45', color: '#fff', fontWeight: 700, borderRadius: 4, minWidth: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 },
-  stepArrow: { display: 'none' },
-  faq: { border: '1px solid #dfe3e8', borderRadius: 4, background: '#fff', overflow: 'hidden', borderLeft: '4px solid #1a2e45' },
-  faqQ: { width: '100%', textAlign: 'left', border: 0, background: 'none', padding: '15px 18px', fontSize: 16, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: 'none', gap: 12 },
-  faqIcon: { background: '#eef2f7', border: '1px solid #c9d4e2', borderRadius: '50%', minWidth: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#1a2e45', fontWeight: 700 },
-  faqA: { margin: 0, padding: '0 18px 16px', color: '#5d6b7a' },
-  cta: { background: '#1a2e45', color: '#fff', padding: '56px 48px', display: 'flex', gap: 48, alignItems: 'center', flexWrap: 'wrap' },
-  ctaBtn: { padding: '14px 30px', background: '#fff', color: '#1a2e45', fontWeight: 700, borderRadius: 4, textDecoration: 'none', border: '1px solid #fff', fontSize: 17, display: 'inline-block', maxWidth: '100%' },
 }

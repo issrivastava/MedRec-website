@@ -1,53 +1,59 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, useAuth } from './context/AuthContext'
+import { AuthProvider } from './context/AuthContext'
 import { ProfileProvider } from './context/ProfileContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
-import BottomNav from './components/BottomNav'
 import NeedHelp from './components/NeedHelp'
 import ProtectedRoute from './components/ProtectedRoute'
+import SessionTimeout from './components/SessionTimeout'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import ForgotPassword from './pages/ForgotPassword'
-import PatientDashboard from './pages/PatientDashboard'
-import DoctorLayout from './pages/doctor/DoctorLayout'
-import DoctorOverview from './pages/doctor/Overview'
-import DoctorPatients from './pages/doctor/Patients'
-import DoctorPatientRecords from './pages/doctor/PatientRecords'
-import DoctorSchedule from './pages/doctor/Schedule'
-import DoctorQueue from './pages/doctor/Queue'
-import DoctorPrescriptions from './pages/doctor/Prescriptions'
-import DoctorEmergency from './pages/doctor/Emergency'
-import DoctorRisk from './pages/doctor/Risk'
-import DoctorChat from './pages/doctor/Chat'
-import DoctorCare from './pages/doctor/Care'
-import DoctorPractice from './pages/doctor/Practice'
-import DoctorEngage from './pages/doctor/Engage'
-import DoctorInsights from './pages/doctor/Insights'
-import DoctorGrowth from './pages/doctor/Growth'
-import DoctorSafety from './pages/doctor/Safety'
-import DoctorAlerts from './pages/doctor/Alerts'
-import DoctorRatings from './pages/doctor/Ratings'
-import DoctorProfilePage from './pages/doctor/DoctorProfile'
-import Contact from './pages/Contact'
-import Profile from './pages/Profile'
-import Policy from './pages/Policy'
-import Timeline from './pages/Timeline'
-import Medicines from './pages/Medicines'
-import Diseases from './pages/Diseases'
-import FindDoctors from './pages/FindDoctors'
-import AskAI from './pages/AskAI'
-import Notifications from './pages/Notifications'
-import Admin from './pages/Admin'
-import PublicShare from './pages/PublicShare'
+import NotFound from './pages/NotFound'
 
-/* Role-aware landing for unknown routes: doctors -> /doctor, patients -> /patient. */
-function RoleHome() {
-  const { user, loading } = useAuth()
-  if (loading) return <div className="card">Restoring session…</div>
-  if (!user) return <Navigate to="/" replace />
-  const home = user.role === 'doctor' ? '/doctor' : user.role === 'admin' ? '/admin' : '/patient'
-  return <Navigate to={home} replace />
+/* Route splitting: Landing/Login stay in the initial bundle for a fast
+   first paint (and Login gates on isFirebaseConfigured WITHOUT loading the
+   Firebase SDK — see firebase.js loadFirebase). Everything else loads on
+   demand when the route is first visited. */
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
+const PatientDashboard = lazy(() => import('./pages/PatientDashboard'))
+const DoctorLayout = lazy(() => import('./pages/doctor/DoctorLayout'))
+const DoctorOverview = lazy(() => import('./pages/doctor/Overview'))
+const DoctorPatients = lazy(() => import('./pages/doctor/Patients'))
+const DoctorPatientRecords = lazy(() => import('./pages/doctor/PatientRecords'))
+const DoctorSchedule = lazy(() => import('./pages/doctor/Schedule'))
+const DoctorQueue = lazy(() => import('./pages/doctor/Queue'))
+const DoctorPrescriptions = lazy(() => import('./pages/doctor/Prescriptions'))
+const DoctorEmergency = lazy(() => import('./pages/doctor/Emergency'))
+const DoctorRisk = lazy(() => import('./pages/doctor/Risk'))
+const DoctorChat = lazy(() => import('./pages/doctor/Chat'))
+const DoctorCare = lazy(() => import('./pages/doctor/Care'))
+const DoctorPractice = lazy(() => import('./pages/doctor/Practice'))
+const DoctorEngage = lazy(() => import('./pages/doctor/Engage'))
+const DoctorInsights = lazy(() => import('./pages/doctor/Insights'))
+const DoctorGrowth = lazy(() => import('./pages/doctor/Growth'))
+const DoctorSafety = lazy(() => import('./pages/doctor/Safety'))
+const DoctorAlerts = lazy(() => import('./pages/doctor/Alerts'))
+const DoctorRatings = lazy(() => import('./pages/doctor/Ratings'))
+const DoctorProfilePage = lazy(() => import('./pages/doctor/DoctorProfile'))
+const Contact = lazy(() => import('./pages/Contact'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Policy = lazy(() => import('./pages/Policy'))
+const Timeline = lazy(() => import('./pages/Timeline'))
+const Medicines = lazy(() => import('./pages/Medicines'))
+const Illnesses = lazy(() => import('./pages/Illnesses'))
+const FindDoctors = lazy(() => import('./pages/FindDoctors'))
+const AskAI = lazy(() => import('./pages/AskAI'))
+const Upload = lazy(() => import('./pages/Upload'))
+const Notifications = lazy(() => import('./pages/Notifications'))
+const Admin = lazy(() => import('./pages/Admin'))
+const PublicShare = lazy(() => import('./pages/PublicShare'))
+const Billing = lazy(() => import('./pages/Billing'))
+const Pharmacy = lazy(() => import('./pages/Pharmacy'))
+const StaffDirectory = lazy(() => import('./pages/StaffDirectory'))
+
+function PageFallback() {
+  return <div className="card">Loading…</div>
 }
 
 export default function App() {
@@ -55,9 +61,11 @@ export default function App() {
     <AuthProvider>
       <ProfileProvider>
       <BrowserRouter>
+        <SessionTimeout />
         <div className="app-shell">
           <Navbar />
           <main className="app-main">
+            <Suspense fallback={<PageFallback />}>
             <Routes>
               {/* Public home page: read about features first, then login */}
               <Route path="/" element={<Landing />} />
@@ -68,10 +76,14 @@ export default function App() {
               <Route path="/contact" element={<Contact />} />
               <Route path="/policy" element={<Policy />} />
               <Route path="/s/:token" element={<PublicShare />} />
-              <Route path="/medicines" element={<Medicines />} />
-              <Route path="/diseases" element={<Diseases />} />
-              <Route path="/find-doctors" element={<FindDoctors />} />
+              {/* Features require Google login — guests bounce to /login */}
+              <Route path="/medicines" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Medicines /></ProtectedRoute>} />
+              <Route path="/illnesses" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Illnesses /></ProtectedRoute>} />
+              <Route path="/diseases" element={<Navigate to="/illnesses" replace />} />
+              <Route path="/find-doctors" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><FindDoctors /></ProtectedRoute>} />
               <Route path="/ask-ai" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><AskAI /></ProtectedRoute>} />
+              {/* Upload documents — patients only (backend accepts patient uploads) */}
+              <Route path="/upload" element={<ProtectedRoute roles={['patient']}><Upload /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Profile /></ProtectedRoute>} />
               <Route path="/patient" element={<ProtectedRoute roles={['patient']}><PatientDashboard /></ProtectedRoute>} />
               <Route path="/doctor" element={<ProtectedRoute roles={['doctor']}><DoctorLayout /></ProtectedRoute>}>
@@ -95,14 +107,16 @@ export default function App() {
                 <Route path="profile" element={<DoctorProfilePage />} />
               </Route>
               <Route path="/timeline" element={<ProtectedRoute roles={['patient', 'doctor']}><Timeline /></ProtectedRoute>} />
-              <Route path="/notifications" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Notifications /></ProtectedRoute>} />
+              <Route path="/notifications" element={<ProtectedRoute roles={['patient', 'doctor', 'admin', 'receptionist', 'nurse']}><Notifications /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Admin /></ProtectedRoute>} />
-              {/* Unknown URLs bounce to the signed-in role's home, not a generic page */}
-              <Route path="*" element={<RoleHome />} />
+              <Route path="/billing" element={<ProtectedRoute roles={['patient', 'doctor', 'receptionist', 'nurse', 'admin']}><Billing /></ProtectedRoute>} />
+              <Route path="/pharmacy" element={<ProtectedRoute roles={['doctor', 'receptionist', 'nurse', 'admin']}><Pharmacy /></ProtectedRoute>} />
+              <Route path="/directory" element={<ProtectedRoute roles={['doctor', 'receptionist', 'nurse', 'admin']}><StaffDirectory /></ProtectedRoute>} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </main>
           <Footer />
-          <BottomNav />
           <NeedHelp />
         </div>
       </BrowserRouter>

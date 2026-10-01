@@ -1,12 +1,17 @@
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    ENV: str = "dev"  # dev | prod — prod enables fail-fast guards (no SQLite fallback, no OTP bypass)
     DATABASE_URL: str = "sqlite:///./medrec.db"
     SECRET_KEY: str = "change-me-dev-only"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     ALGORITHM: str = "HS256"
+    JWT_ISSUER: str = "medrec-api"
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_MB: int = 15
     VIDEO_MAX_UPLOAD_MB: int = 100  # test-result video clips (photos/PDFs use MAX_UPLOAD_MB)
@@ -56,9 +61,36 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
     GEMINI_TIMEOUT_SEC: int = 60
+    # Request safety nets
+    MAX_PAGE_SIZE: int = 100  # upper bound for ?limit= pagination
 
-    class Config:
-        env_file = ".env"
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def _secret_strength(cls, v: str) -> str:
+        weak = {"change-me-dev-only", "change-me-to-a-long-random-string",
+                "change-me-in-prod", "changeme", "secret", "test"}
+        if (v or "").strip().lower() in weak or len(v or "") < 16:
+            # Fail fast only in prod; dev keeps booting with a loud warning
+            # (emitted in main.py lifespan) so fresh clones still work.
+            import os
+            if os.getenv("ENV", "dev").lower() in ("prod", "production"):
+                raise ValueError(
+                    "SECRET_KEY is weak/default — set a random 32+ char value in .env")
+        return v
+
+    @field_validator("ENV")
+    @classmethod
+    def _env_norm(cls, v: str) -> str:
+        v = (v or "dev").strip().lower()
+        return "prod" if v in ("prod", "production") else "dev"
+
+    @property
+    def is_prod(self) -> bool:
+        return self.ENV == "prod"
+
+    @property
+    def otp_delivery_configured(self) -> bool:
+        return bool((self.MAIL_HOST and self.MAIL_FROM) or self.SMS_WEBHOOK_URL)
 
     @property
     def cors_origins_list(self) -> list[str]:

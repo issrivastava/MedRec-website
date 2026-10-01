@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.core.deps import require_doctor, get_current_user
 from app.db.session import get_db
 from app.models.tables import (
@@ -63,13 +64,31 @@ def update_my_profile(
 
 
 @router.get("/patients", response_model=list[AssignmentOut])
-def my_patients(db: Session = Depends(get_db), user: User = Depends(require_doctor)):
+def my_patients(limit: int = 200, offset: int = 0,
+                db: Session = Depends(get_db), user: User = Depends(require_doctor)):
     """Assigned-patients dropdown source: only linked patients."""
-    links = db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id).all()
+    try:
+        limit = max(1, min(int(limit), 500))
+    except Exception:
+        limit = 200
+    try:
+        offset = max(0, int(offset))
+    except Exception:
+        offset = 0
+    links = (db.query(DoctorPatientAssignment).filter_by(doctor_id=user.id)
+             .order_by(DoctorPatientAssignment.created_at.desc())
+             .limit(limit).offset(offset).all())
+    if not links:
+        return []
+    # Bulk-fetch users in 2 queries (was 2 queries per link).
+    patient_ids = list({l.patient_id for l in links})
+    doctor_ids = list({l.doctor_id for l in links})
+    patients = {u.id: u for u in db.query(User).filter(User.id.in_(patient_ids)).all()} if patient_ids else {}
+    doctors = {u.id: u for u in db.query(User).filter(User.id.in_(doctor_ids)).all()} if doctor_ids else {}
     out: list[AssignmentOut] = []
     for link in links:
-        p = db.query(User).filter(User.id == link.patient_id).first()
-        d = db.query(User).filter(User.id == link.doctor_id).first()
+        p = patients.get(link.patient_id)
+        d = doctors.get(link.doctor_id)
         if not p:
             continue
         out.append(
@@ -126,16 +145,25 @@ def _notify_view(db: Session, doctor: User, patient_id: str) -> None:
 
 @router.get("/patients/{patient_id}/documents")
 def patient_documents(patient_id: str, category: str | None = None, report_kind: str | None = None,
+                      limit: int = 100, offset: int = 0,
                       db: Session = Depends(get_db), user: User = Depends(require_doctor)):
     if not _is_assigned(db, user.id, patient_id):
         raise HTTPException(status_code=403, detail="Patient not assigned to you")
     _notify_view(db, user, patient_id)
-    q = db.query(Document).filter(Document.owner_id == patient_id)
+    try:
+        limit = max(1, min(int(limit), settings.MAX_PAGE_SIZE))
+    except Exception:
+        limit = 100
+    try:
+        offset = max(0, int(offset))
+    except Exception:
+        offset = 0
+    q = db.query(Document).options(selectinload(Document.ai_summary)).filter(Document.owner_id == patient_id)
     if category:
         q = q.filter(Document.category == category)
     if report_kind:
         q = q.filter(Document.report_kind == report_kind)
-    docs = q.order_by(Document.visit_date.desc().nullslast(), Document.created_at.desc()).all()
+    docs = q.order_by(Document.visit_date.desc().nullslast(), Document.created_at.desc()).limit(limit).offset(offset).all()
     return [
         {
             "id": d.id, "owner_id": d.owner_id, "title": d.title, "doc_type": d.doc_type,

@@ -15,9 +15,11 @@ Endpoints:
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import get_current_user
+from app.db.session import get_db
 from app.models.tables import User
 
 router = APIRouter()
@@ -44,6 +46,14 @@ class AskIn(BaseModel):
     history: list[ChatMsg] = Field(default_factory=list, max_length=12)
     use_records: bool = False
     patient_id: str | None = None  # doctors: which assigned patient to ground on
+
+
+class AskRecordsIn(BaseModel):
+    """Vectorless page-index RAG: question answered ONLY from the patient's
+    own document pages (BM25 retrieval, no embeddings)."""
+    question: str = Field(min_length=2, max_length=1000)
+    patient_id: str | None = None  # doctors/staff: which patient to read
+    top_k: int = Field(default=5, ge=1, le=10)
 
 
 def _history_text(history: list[ChatMsg]) -> str:
@@ -126,8 +136,11 @@ async def ask_assistant(data: AskIn, user: User = Depends(get_current_user)):
                 docs = db.query(Document).filter_by(owner_id=pid).order_by(
                     Document.visit_date.desc().nullslast()).limit(5).all()
                 parts = []
+                # One query for all summaries (was one per document).
+                doc_ids = [d.id for d in docs]
+                summaries = {s.document_id: s for s in db.query(AiSummary).filter(AiSummary.document_id.in_(doc_ids)).all()} if doc_ids else {}
                 for d in docs:
-                    s = db.query(AiSummary).filter_by(document_id=d.id).first()
+                    s = summaries.get(d.id)
                     snippet = (s.summary_text[:600] if s else (d.ocr_text or "")[:600])
                     parts.append(f"- {d.title} ({d.visit_date}, {d.report_kind or d.doc_type}): {snippet}")
                 vitals = db.query(Vital).filter_by(owner_id=pid).order_by(Vital.measured_at.desc()).limit(8).all()
@@ -173,3 +186,91 @@ async def ask_assistant(data: AskIn, user: User = Depends(get_current_user)):
 
 _DISCLAIMER = ("AI answers are informational only — not medical advice. "
                "Always consult your doctor.")
+
+
+RAG_SYSTEM = (
+    "You are MedRec's record-reading assistant. Answer the user's question "
+    "USING ONLY the document excerpts below — never invent values, dates, or "
+    "findings that are not in the excerpts. Cite every factual claim with its "
+    "tag exactly as shown (e.g. [CBC Report p.2]). If the excerpts do not "
+    "contain the answer, say so plainly and suggest what to ask the doctor. "
+    "You are NOT a doctor: no diagnosis, no prescriptions. Keep it concise "
+    "(under ~200 words). Reply in the same language the user writes in."
+)
+
+
+def _rag_prompt(question: str, hits: list[dict]) -> str:
+    from app.services.page_rag import citation_tag
+    blocks = []
+    for h in hits:
+        tag = citation_tag(h.get("title", ""), h.get("page_no", 1))
+        date = h.get("visit_date") or "undated"
+        blocks.append(f"{tag} ({h.get('report_kind') or h.get('doc_type') or 'document'}, {date}):\n"
+                      f"{(h.get('text') or '')[:2500]}")
+    return (f"{RAG_SYSTEM}\n\n--- Document excerpts ---\n\n" + "\n\n".join(blocks) +
+            f"\n\n--- Question ---\n{question}\n\nAnswer with citations:")
+
+
+def _extractive_answer(question: str, hits: list[dict]) -> str:
+    """Offline fallback: show the retrieved pages directly (no LLM needed)."""
+    from app.services.page_rag import citation_tag
+    lines = [f"Top matching pages for: “{question}”"]
+    for h in hits:
+        lines.append(f"\n{citation_tag(h.get('title', ''), h.get('page_no', 1))}\n{h.get('snippet', '')}")
+    lines.append("\n(Offline extractive answer — start Ollama or set GEMINI_API_KEY for a written summary.)")
+    return "\n".join(lines)
+
+
+@router.post("/ask-records")
+async def ask_records(data: AskRecordsIn, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Ask a question over the patient's OWN documents via the page index.
+
+    Vectorless RAG: BM25 retrieval over `document_pages` (no embeddings),
+    answer grounded ONLY in the retrieved pages with [Title p.N] citations.
+    Patients are auto-scoped to self; doctors/staff pass an assigned
+    patient_id; admins may pass any. Returns
+    {answer, engine, citations: [{document_id, title, page, snippet, score,
+    visit_date}], used_records, disclaimer}.
+    """
+    from app.services.page_rag import retrieve, load_patient_pages
+    from app.core.deps import resolve_patient_id
+    pid = resolve_patient_id(db, user, data.patient_id)
+    pages = load_patient_pages(db, pid)
+    hits = retrieve(pages, data.question, top_k=data.top_k)
+    if not hits:
+        return {"answer": ("No matching pages found in the indexed records. "
+                           "Try different words (e.g. a test name like “HbA1c” or “cholesterol”), "
+                           "or upload the report first."),
+                "engine": "page-index:bm25", "citations": [],
+                "used_records": False, "disclaimer": _DISCLAIMER}
+    citations = [{
+        "document_id": h["document_id"], "title": h["title"],
+        "page": h["page_no"], "snippet": h["snippet"], "score": h["score"],
+        "visit_date": h.get("visit_date"),
+        "report_kind": h.get("report_kind"),
+    } for h in hits]
+    prompt = _rag_prompt(data.question, hits)
+    errors: list[str] = []
+    if settings.GEMINI_API_KEY:
+        try:
+            return {"answer": await _ask_gemini(prompt, []),
+                    "engine": f"gemini:{settings.GEMINI_MODEL}+page-index",
+                    "citations": citations, "used_records": True,
+                    "disclaimer": _DISCLAIMER}
+        except Exception as exc:
+            errors.append(f"Gemini: {exc}")
+    try:
+        from app.services.ollama import generate_text
+        import asyncio as _asyncio
+        answer, model = await _asyncio.to_thread(
+            generate_text, prompt, None, False, 600)
+        return {"answer": answer, "engine": f"{model}+page-index",
+                "citations": citations, "used_records": True,
+                "disclaimer": _DISCLAIMER}
+    except Exception as exc:
+        errors.append(f"Ollama: {exc}")
+    # Offline: still display the retrieved pages (the "results" view).
+    return {"answer": _extractive_answer(data.question, hits),
+            "engine": "page-index:extractive-offline", "citations": citations,
+            "used_records": True, "disclaimer": _DISCLAIMER}

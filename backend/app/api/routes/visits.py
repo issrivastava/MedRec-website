@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, require_doctor, is_assigned
 from app.db.session import get_db
 from app.models.tables import VisitNote, User
@@ -12,6 +13,12 @@ router = APIRouter()
 
 def _out(db: Session, v: VisitNote) -> dict:
     doc = db.query(User).filter_by(id=v.doctor_id).first()
+    return _out_with_map(v, {v.doctor_id: doc} if doc else {})
+
+
+def _out_with_map(v: VisitNote, doctors: dict) -> dict:
+    """Bulk-safe serializer (no per-row query)."""
+    doc = doctors.get(v.doctor_id)
     d = {c: getattr(v, c) for c in ("id", "patient_id", "doctor_id", "note_type", "title", "content",
                                     "medicines", "visit_date", "follow_up_date", "created_at")}
     d["family_member_id"] = getattr(v, "family_member_id", None)
@@ -75,25 +82,51 @@ def create_note(data: VisitNoteIn, db: Session = Depends(get_db), user: User = D
 
 
 @router.get("/my", response_model=list[VisitNoteOut])
-def my_notes(family_member_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def my_notes(family_member_id: str | None = None, limit: int = 100, offset: int = 0,
+             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "patient":
         raise HTTPException(status_code=403, detail="Patients only")
+    try:
+        limit = max(1, min(int(limit), settings.MAX_PAGE_SIZE))
+    except Exception:
+        limit = 100
+    try:
+        offset = max(0, int(offset))
+    except Exception:
+        offset = 0
     q = db.query(VisitNote).filter_by(patient_id=user.id)
     if family_member_id:
         q = q.filter_by(family_member_id=family_member_id)
-    rows = q.order_by(VisitNote.created_at.desc()).all()
-    return [_out(db, v) for v in rows]
+    rows = q.order_by(VisitNote.created_at.desc()).limit(limit).offset(offset).all()
+    if not rows:
+        return []
+    ids = list({v.doctor_id for v in rows})
+    doctors = {u.id: u for u in db.query(User).filter(User.id.in_(ids)).all()} if ids else {}
+    return [_out_with_map(v, doctors) for v in rows]
 
 
 @router.get("/patient/{patient_id}", response_model=list[VisitNoteOut])
-def patient_notes(patient_id: str, family_member_id: str | None = None, db: Session = Depends(get_db), user: User = Depends(require_doctor)):
+def patient_notes(patient_id: str, family_member_id: str | None = None, limit: int = 100, offset: int = 0,
+                  db: Session = Depends(get_db), user: User = Depends(require_doctor)):
     if not is_assigned(db, user.id, patient_id):
         raise HTTPException(status_code=403, detail="Patient not assigned to you")
+    try:
+        limit = max(1, min(int(limit), settings.MAX_PAGE_SIZE))
+    except Exception:
+        limit = 100
+    try:
+        offset = max(0, int(offset))
+    except Exception:
+        offset = 0
     q = db.query(VisitNote).filter_by(patient_id=patient_id)
     if family_member_id:
         q = q.filter_by(family_member_id=family_member_id)
-    rows = q.order_by(VisitNote.created_at.desc()).all()
-    return [_out(db, v) for v in rows]
+    rows = q.order_by(VisitNote.created_at.desc()).limit(limit).offset(offset).all()
+    if not rows:
+        return []
+    ids = list({v.doctor_id for v in rows})
+    doctors = {u.id: u for u in db.query(User).filter(User.id.in_(ids)).all()} if ids else {}
+    return [_out_with_map(v, doctors) for v in rows]
 
 
 @router.delete("/{note_id}", status_code=204)

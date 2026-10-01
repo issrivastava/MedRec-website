@@ -51,9 +51,9 @@ export default function Contact() {
 }
 
 const s = {
-  wrap: { width: '100%', padding: '26px 30px 40px' },
-  form: { display: 'flex', flexDirection: 'column', gap: 10 },
-  input: { padding: 10, fontSize: 15, fontFamily: 'inherit' },
-  btn: { padding: 12, background: '#1e3a5f', color: '#fff', border: 0, cursor: 'pointer', fontWeight: 700, fontSize: 15 },
-  side: { background: '#1a2e45', color: '#fff', borderRadius: 12, padding: 20 },
+  wrap: { width: '100%', padding: '26px 6px 40px' },
+  form: { display: 'flex', flexDirection: 'column', gap: 10, background: '#fff', border: '1px solid #e9edf2', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(16,24,40,.05)' },
+  input: { padding: '11px 13px', fontSize: 14.5, fontFamily: 'inherit', borderRadius: 12 },
+  btn: { padding: 12, background: '#101828', color: '#fff', border: '1px solid #101828', cursor: 'pointer', fontWeight: 700, fontSize: 15, borderRadius: 12 },
+  side: { background: '#fff', color: '#101828', border: '1px solid #e9edf2', borderRadius: 16, padding: 20, boxShadow: '0 1px 2px rgba(16,24,40,.05)' },
 }

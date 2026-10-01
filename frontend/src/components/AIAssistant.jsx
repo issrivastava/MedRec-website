@@ -76,7 +76,7 @@ export default function AIAssistant() {
         {messages.map((m, i) => (
           <div key={i} style={m.role === 'user' ? s.userRow : s.aiRow}>
             <div style={m.role === 'user' ? s.userBubble : { ...s.aiBubble, ...(m.error ? s.errBubble : {}) }}>
-              <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.text}</p>
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'inherit' }}>{m.text}</p>
               {m.role === 'assistant' && !m.error && <VoiceReader text={m.text} />}
             </div>
           </div>

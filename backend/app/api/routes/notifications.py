@@ -33,6 +33,24 @@ def mark_read(note_id: str, db: Session = Depends(get_db), user: User = Depends(
 
 @router.post("/read-all", response_model=dict)
 def mark_all(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    db.query(Notification).filter_by(user_id=user.id, read=False).update({"read": True})
+    # synchronize_session=False: explicit bulk UPDATE + commit, no session-state
+    # surprises — the row count returned is the source of truth for the UI.
+    marked = (
+        db.query(Notification)
+        .filter_by(user_id=user.id, read=False)
+        .update({"read": True}, synchronize_session=False)
+    )
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "marked": marked}
+
+
+@router.delete("/my", response_model=dict)
+def clear_all(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Clear all: permanently delete every notification for the caller."""
+    deleted = (
+        db.query(Notification)
+        .filter_by(user_id=user.id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"ok": True, "deleted": deleted}

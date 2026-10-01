@@ -36,8 +36,11 @@ export default function Admin() {
       {stats && (
         <div style={s.grid}>
           {[['Users', stats.users_total], ['Patients', stats.patients], ['Doctors', stats.doctors],
+            ['Front desk', stats.receptionists || 0],
             ['Documents', stats.documents], ['Booked appts', stats.appointments_booked],
-            ['Visit notes', stats.visit_notes], ['Reviews', stats.reviews || 0], ['Contact msgs', stats.contact_messages]].map(([k, v]) => (
+            ['Today', stats.appointments_today || 0],
+            ['Visit notes', stats.visit_notes], ['Reviews', stats.reviews || 0], ['Contact msgs', stats.contact_messages],
+            ['Invoices', stats.invoices || 0], ['Revenue Rs.', stats.revenue_collected || 0], ['Pending Rs.', stats.fees_pending || 0]].map(([k, v]) => (
             <div key={k} style={s.stat}><div style={s.num}>{v}</div><div>{k}</div></div>
           ))}
         </div>
@@ -49,7 +52,8 @@ export default function Admin() {
           <input placeholder="Search name/email" value={q} onChange={(e) => setQ(e.target.value)} style={s.input} />
           <select value={role} onChange={(e) => setRole(e.target.value)} style={s.input}>
             <option value="">All roles</option><option value="patient">Patients</option>
-            <option value="doctor">Doctors</option><option value="admin">Admins</option>
+            <option value="doctor">Doctors</option><option value="receptionist">Receptionists</option>
+            <option value="nurse">Nurses</option><option value="admin">Admins</option>
           </select>
           <button onClick={load} style={s.btn}>Search</button>
         </div>
@@ -58,7 +62,9 @@ export default function Admin() {
             <span><b>{u.full_name}</b> · {u.email} · <i>{u.role}</i></span>
             <span style={{ display: 'flex', gap: 6 }}>
               <select value={u.role} onChange={(e) => setUserRole(u.id, e.target.value)}>
-                <option value="patient">patient</option><option value="doctor">doctor</option><option value="admin">admin</option>
+                <option value="patient">patient</option><option value="doctor">doctor</option>
+                <option value="receptionist">receptionist</option><option value="nurse">nurse</option>
+                <option value="admin">admin</option>
               </select>
               <button onClick={() => delUser(u.id)}>Delete</button>
             </span>

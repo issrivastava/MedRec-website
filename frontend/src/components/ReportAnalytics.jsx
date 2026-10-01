@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
 import { useProfile } from '../context/ProfileContext'
 import { REPORT_CATEGORIES, kindLabel } from '../reportKinds'
+import { RangeToggle, filterByRange, MiniChart } from './HealthUX'
 
 /* Storage + differentiation overview: counts per category/kind,
    lab-value trends per test, prescription history per medicine. */
@@ -10,6 +11,7 @@ export default function ReportAnalytics({ docs }) {
   const [trends, setTrends] = useState(null)
   const [rx, setRx] = useState([])
   const [test, setTest] = useState('')
+  const [range, setRange] = useState('1Y')
 
   useEffect(() => {
     const params = activeId ? { family_member_id: activeId } : {}
@@ -38,7 +40,8 @@ export default function ReportAnalytics({ docs }) {
   }, [docs])
 
   const series = trends?.tests?.[test]
-  const points = series?.points || []
+  const allPoints = series?.points || []
+  const points = useMemo(() => filterByRange(allPoints, range), [allPoints, range])
   const svg = useMemo(() => {
     if (points.length < 2) return null
     const W = 520, H = 160, P = 28
@@ -77,26 +80,15 @@ export default function ReportAnalytics({ docs }) {
       <h4 style={{ margin: '12px 0 8px' }}>Lab trends (from stored reports)</h4>
       {trends?.tests && Object.keys(trends.tests).length > 0 ? (
         <>
-          <div className="toolbar-row">
+          <div className="toolbar-row" style={{ alignItems: 'center' }}>
             <select value={test} onChange={(e) => setTest(e.target.value)} style={{ padding: 8, fontSize: 14 }}>
               {Object.entries(trends.tests).map(([k, v]) => (
                 <option key={k} value={k}>{v.display_name} ({v.points.length})</option>
               ))}
             </select>
+            <RangeToggle value={range} onChange={setRange} />
           </div>
-          {svg ? (
-            <svg viewBox={`0 0 ${svg.W} ${svg.H}`} style={{ width: '100%', maxWidth: 560, border: '1px solid #dfe3e8', borderRadius: 4, background: '#fff' }}>
-              <path d={svg.d} fill="none" stroke="#1e3a5f" strokeWidth="2" />
-              {svg.xy.map((p, i) => (
-                <g key={i}>
-                  <circle cx={p.x} cy={p.y} r="3.5" fill={p.flag === 'normal' ? '#2f5d3a' : '#8b2e3c'} />
-                  <text x={p.x} y={svg.H - 8} fontSize="9" textAnchor="middle" fill="#5d6b7a">{(p.date || '').slice(5)}</text>
-                </g>
-              ))}
-              <text x="8" y="16" fontSize="11" fill="#5d6b7a">max {svg.max} {series.unit || ''}</text>
-              <text x="8" y={svg.H - 20} fontSize="11" fill="#5d6b7a">min {svg.min} {series.unit || ''}</text>
-            </svg>
-          ) : <p style={{ color: '#78716c' }}>Need at least 2 values with the same test to draw a trend.</p>}
+          <MiniChart points={points} color="#1e3a5f" unit={series?.unit || ''} />
           <div style={{ marginTop: 8 }}>
             {points.map((p, i) => (
               <div key={i} className="doc-row" style={{ padding: '6px 10px' }}>

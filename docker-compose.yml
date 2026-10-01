@@ -15,7 +15,11 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg2://medrec:medrec@db:5432/medrec
-      SECRET_KEY: change-me-in-prod
+      # Required: generate with `python -c "import secrets; print(secrets.token_hex(32))"`
+      # and export before `docker compose up`, e.g. `$env:SECRET_KEY='<value>'`
+      # (PowerShell) or `SECRET_KEY=<value> docker compose up` (bash).
+      # Compose fails fast with a clear message if it is missing.
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY env var before running docker compose}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: llama3.1:8b
       CORS_ORIGINS: http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174

@@ -1,20 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  signOut,
-  onAuthStateChanged,
-  updateProfile,
-  sendPasswordResetEmail,
-  sendSignInLinkToEmail,
-  isSignInWithEmailLink,
-  signInWithEmailLink,
-} from 'firebase/auth'
 import api, { AI_TIMEOUT } from '../api'
-import { auth, googleProvider, isFirebaseConfigured } from '../firebase'
+import { isFirebaseConfigured, loadFirebase } from '../firebase'
 
 const AuthContext = createContext(null)
 
@@ -90,12 +76,14 @@ export function AuthProvider({ children }) {
   // role is passed through so FIRST-TIME doctors are created as doctors
   // immediately (no 428 bounce that defaults to patient).
   const firebaseLogin = async (email, password, role = null, specialization = null) => {
+    const { auth, signInWithEmailAndPassword } = await loadFirebase()
     const { user: fb } = await signInWithEmailAndPassword(auth, email, password)
     setFirebaseUser(fb)
     return exchange(fb, role, specialization ? { specialization } : {})
   }
 
   const firebaseRegister = async ({ email, password, fullName, role, phone, specialization, hospital }) => {
+    const { auth, createUserWithEmailAndPassword, updateProfile } = await loadFirebase()
     const { user: fb } = await createUserWithEmailAndPassword(auth, email, password)
     if (fullName) await updateProfile(fb, { displayName: fullName }).catch(() => {})
     setFirebaseUser(fb)
@@ -103,6 +91,7 @@ export function AuthProvider({ children }) {
   }
 
   const googleLogin = async (role = null, specialization = null) => {
+    const { auth, googleProvider, signInWithPopup, signInWithRedirect } = await loadFirebase()
     try {
       const { user: fb } = await signInWithPopup(auth, googleProvider)
       setFirebaseUser(fb)
@@ -120,7 +109,7 @@ export function AuthProvider({ children }) {
 
   // ---- Firebase passwordless email link (the link IS mailed by Firebase) ----
   const sendEmailLink = async (email) => {
-    if (!isFirebaseConfigured) throw new Error('Firebase is not configured')
+    const { auth, sendSignInLinkToEmail } = await loadFirebase()
     await sendSignInLinkToEmail(auth, email, {
       url: `${window.location.origin}/login`,
       handleCodeInApp: true,
@@ -128,12 +117,16 @@ export function AuthProvider({ children }) {
     localStorage.setItem('medrec_email_for_link', email)
   }
 
-  const isEmailLink = (href) => {
+  const isEmailLink = async (href) => {
     if (!isFirebaseConfigured) return false
-    try { return isSignInWithEmailLink(auth, href || window.location.href) } catch { return false }
+    try {
+      const { auth, isSignInWithEmailLink } = await loadFirebase()
+      return isSignInWithEmailLink(auth, href || window.location.href)
+    } catch { return false }
   }
 
   const completeEmailLink = async (email) => {
+    const { auth, signInWithEmailLink } = await loadFirebase()
     const { user: fb } = await signInWithEmailLink(auth, email, window.location.href)
     localStorage.removeItem('medrec_email_for_link')
     // Clean the one-time code out of the address bar
@@ -147,6 +140,7 @@ export function AuthProvider({ children }) {
 
   // Called from the role picker shown on first Firebase sign-in
   const completeRole = async (role, specialization = null) => {
+    const { auth } = await loadFirebase()
     const fb = firebaseUser || auth?.currentUser
     if (!fb) throw new Error('Firebase session expired — please sign in again')
     return exchange(fb, role, specialization ? { specialization } : {})
@@ -175,7 +169,12 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
-    try { if (auth) await signOut(auth) } catch { /* ignore */ }
+    try {
+      if (isFirebaseConfigured) {
+        const { auth, signOut } = await loadFirebase()
+        if (auth) await signOut(auth)
+      }
+    } catch { /* ignore */ }
     localStorage.removeItem('medrec_token')
     localStorage.removeItem('medrec_user')
     localStorage.removeItem('medrec_email_for_link')
@@ -237,7 +236,7 @@ export function AuthProvider({ children }) {
 
   // Firebase-hosted password reset email (only when Firebase is configured).
   const firebasePasswordReset = async (email) => {
-    if (!isFirebaseConfigured) throw new Error('Firebase is not configured')
+    const { auth, sendPasswordResetEmail } = await loadFirebase()
     await sendPasswordResetEmail(auth, email)
   }
 
@@ -247,7 +246,8 @@ export function AuthProvider({ children }) {
     await logout()
   }
 
-  // Restore session: valid local token wins; else resume Firebase session silently
+  // Restore session: valid local token wins; else resume Firebase session silently.
+  // The Firebase SDK loads lazily here — first paint never waits for it.
   useEffect(() => {
     if (!isFirebaseConfigured) {
       const token = localStorage.getItem('medrec_token')
@@ -261,7 +261,11 @@ export function AuthProvider({ children }) {
       }
       return
     }
-    const unsub = onAuthStateChanged(auth, async (fb) => {
+    let cancelled = false
+    let unsub = null
+    loadFirebase().then(({ auth, onAuthStateChanged, getRedirectResult }) => {
+      if (cancelled) return
+      unsub = onAuthStateChanged(auth, async (fb) => {
       setFirebaseUser(fb)
       try {
         // Returning from a Google redirect sign-in? Finish the MedRec exchange.
@@ -288,8 +292,9 @@ export function AuthProvider({ children }) {
       } finally {
         setLoading(false)
       }
-    })
-    return unsub
+      })
+    }).catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true; if (unsub) unsub() }
   }, [])
 
   return (

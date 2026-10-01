@@ -21,4 +21,8 @@ from app.models.tables import (  # noqa: F401
     Review,
     OtpCode,
     EmergencyAlert,
+    Invoice,
+    PharmacyItem,
+    PharmacyDispense,
+    DocumentPage,
 )

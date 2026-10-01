@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_doctor, is_assigned
+from app.core.deps import require_doctor, require_staff, is_assigned
 from app.db.session import get_db
 from app.models.tables import (
     User, VisitNote, Appointment, DoctorPatientAssignment, DoctorProfile,
@@ -313,14 +313,18 @@ def certificate_pdf(cert_id: str, db: Session = Depends(get_db),
 # ---------------------------------------------------------------------------
 
 @router.get("/queue")
-def opd_queue(day: str | None = None, db: Session = Depends(get_db),
-              user: User = Depends(require_doctor)):
+def opd_queue(day: str | None = None, doctor_id: str | None = None,
+              db: Session = Depends(get_db),
+              user: User = Depends(require_staff)):
     """Today's OPD queue: booked appts ordered by token, with check-in state."""
     try:
         target = date.fromisoformat(day) if day else date.today()
     except ValueError:
         raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
-    rows = db.query(Appointment).filter_by(doctor_id=user.id, date=target)\
+    did = doctor_id or (user.id if user.role == "doctor" else None)
+    if not did:
+        raise HTTPException(status_code=400, detail="doctor_id required for front-desk queue view")
+    rows = db.query(Appointment).filter_by(doctor_id=did, date=target)\
         .order_by(Appointment.start_time.asc()).all()
     # backfill missing token numbers by time order
     try:
@@ -357,9 +361,11 @@ def opd_queue(day: str | None = None, db: Session = Depends(get_db),
 
 @router.patch("/appointments/{appt_id}/checkin")
 def checkin(appt_id: str, data: CheckinIn, db: Session = Depends(get_db),
-            user: User = Depends(require_doctor)):
-    a = db.query(Appointment).filter_by(id=appt_id, doctor_id=user.id).first()
+            user: User = Depends(require_staff)):
+    a = db.query(Appointment).filter_by(id=appt_id).first()
     if not a:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.role == "doctor" and a.doctor_id != user.id:
         raise HTTPException(status_code=404, detail="Not found")
     a.checked_in = data.checked_in
     if data.checked_in:
@@ -377,9 +383,11 @@ def checkin(appt_id: str, data: CheckinIn, db: Session = Depends(get_db),
 
 @router.patch("/appointments/{appt_id}/no-show")
 def mark_no_show(appt_id: str, db: Session = Depends(get_db),
-                 user: User = Depends(require_doctor)):
-    a = db.query(Appointment).filter_by(id=appt_id, doctor_id=user.id).first()
+                 user: User = Depends(require_staff)):
+    a = db.query(Appointment).filter_by(id=appt_id).first()
     if not a:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.role == "doctor" and a.doctor_id != user.id:
         raise HTTPException(status_code=404, detail="Not found")
     a.status = "no_show"
     db.commit()

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, date, time
 from sqlalchemy import (
     String, Text, DateTime, Date, Time, Float, Boolean, ForeignKey, Integer, BigInteger,
-    UniqueConstraint, JSON, Enum as SAEnum,
+    UniqueConstraint, JSON, Index, Enum as SAEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -20,6 +20,12 @@ def _uuid_col():
 class Role(str, enum.Enum):
     patient = "patient"
     doctor = "doctor"
+    admin = "admin"
+    receptionist = "receptionist"
+    nurse = "nurse"
+
+
+STAFF_ROLES = ("doctor", "admin", "receptionist", "nurse")
 
 
 class User(Base):
@@ -34,6 +40,10 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True, index=True, default=None)
     firebase_uid: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True, index=True, default=None)
     avatar_path: Mapped[str | None] = mapped_column(String(1024), nullable=True, default=None)
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Patient directory management: soft-archive instead of hard delete.
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     @property
@@ -85,6 +95,11 @@ class PatientProfile(Base):
     family_history_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     menstrual_history: Mapped[str | None] = mapped_column(Text, nullable=True)
     mental_health: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional ID linking (India): ABHA address / ABHA number (masked) + Aadhaar ref (masked only).
+    # Never store full Aadhaar — only last-4 / masked reference.
+    abha_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    abha_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    aadhaar_masked: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="patient_profile")
 
@@ -106,6 +121,10 @@ class DoctorProfile(Base):
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     clinic_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     timings: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Clinic operations: department + qualification + council (for directory + letterhead).
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    qualification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registration_council: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="doctor_profile")
 
@@ -123,6 +142,10 @@ class DoctorPatientAssignment(Base):
 
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        Index("ix_docs_owner_visit_created", "owner_id", "visit_date", "created_at"),
+        Index("ix_docs_owner_doctype", "owner_id", "doc_type"),
+    )
 
     id: Mapped[str] = _uuid_col()
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -167,6 +190,9 @@ class AiSummary(Base):
 class LabResult(Base):
     """Persisted per-report lab values for trends + data analysis."""
     __tablename__ = "lab_results"
+    __table_args__ = (
+        Index("ix_labs_owner_test_measured", "owner_id", "test_key", "measured_at"),
+    )
 
     id: Mapped[str] = _uuid_col()
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True)
@@ -284,6 +310,9 @@ class FamilyHistoryEntry(Base):
 class VisitNote(Base):
     """Doctor-written e-prescription / visit note for a patient."""
     __tablename__ = "visit_notes"
+    __table_args__ = (
+        Index("ix_visit_patient_type_created", "patient_id", "note_type", "created_at"),
+    )
 
     id: Mapped[str] = _uuid_col()
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -316,6 +345,10 @@ class AvailabilitySlot(Base):
 
 class Appointment(Base):
     __tablename__ = "appointments"
+    __table_args__ = (
+        Index("ix_appt_doc_date_status", "doctor_id", "date", "status", "start_time"),
+        Index("ix_appt_patient_date", "patient_id", "date"),
+    )
 
     id: Mapped[str] = _uuid_col()
     doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -357,6 +390,9 @@ class LabReferenceRange(Base):
 
 class HealthAlert(Base):
     __tablename__ = "health_alerts"
+    __table_args__ = (
+        Index("ix_alert_patient_ack", "patient_id", "acknowledged"),
+    )
 
     id: Mapped[str] = _uuid_col()
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -375,6 +411,9 @@ class HealthAlert(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notif_user_read_created", "user_id", "read", "created_at"),
+    )
 
     id: Mapped[str] = _uuid_col()
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -418,6 +457,9 @@ class OtpCode(Base):
     verification marks the newest non-expired, non-consumed row consumed.
     """
     __tablename__ = "otp_codes"
+    __table_args__ = (
+        Index("ix_otp_purpose_consumed_created", "purpose", "consumed", "created_at"),
+    )
 
     id: Mapped[str] = _uuid_col()
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -453,6 +495,9 @@ class EmergencyAlert(Base):
 class Vital(Base):
     """Patient vitals time-series (BP, sugar, weight, height, BMI, temp, SpO2, pulse)."""
     __tablename__ = "vitals"
+    __table_args__ = (
+        Index("ix_vitals_owner_type_measured", "owner_id", "vital_type", "measured_at"),
+    )
 
     id: Mapped[str] = _uuid_col()
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -472,6 +517,9 @@ class Vital(Base):
 class Vaccination(Base):
     """Vaccination schedule per profile."""
     __tablename__ = "vaccinations"
+    __table_args__ = (
+        Index("ix_vac_owner_status_due", "owner_id", "status", "due_date"),
+    )
 
     id: Mapped[str] = _uuid_col()
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -522,6 +570,9 @@ class Consent(Base):
 class Message(Base):
     """Secure doctor-patient chat message (ID-linked pair + priority/category/attachments)."""
     __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_msg_pair_created", "doctor_id", "patient_id", "created_at"),
+    )
 
     id: Mapped[str] = _uuid_col()
     doctor_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -782,4 +833,89 @@ class SurgicalRecord(Base):
     surgeon: Mapped[str | None] = mapped_column(String(255), nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(100), nullable=True)  # recovered|follow-up|complications
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Hospital operations: billing/invoices + pharmacy inventory.
+# ---------------------------------------------------------------------------
+
+class Invoice(Base):
+    """Billing invoice + receipt: items JSON, insurance details, online/offline payment."""
+    __tablename__ = "invoices"
+    __table_args__ = (
+        Index("ix_inv_patient_status_created", "patient_id", "status", "created_at"),
+        Index("ix_inv_receipt", "receipt_no"),
+    )
+
+    id: Mapped[str] = _uuid_col()
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    doctor_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    appointment_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("appointments.id", ondelete="SET NULL"), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    receipt_no: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True, index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="INR")
+    items: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [{label, qty, rate, amount}]
+    status: Mapped[str] = mapped_column(String(20), default="issued", index=True)  # draft|issued|paid|partially_paid|cancelled|refunded
+    payment_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)  # cash|card|upi|netbanking|insurance|other
+    paid_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    insurance_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    insurance_policy_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    insurance_claim_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PharmacyItem(Base):
+    """Pharmacy + inventory: stock per batch with expiry and price."""
+    __tablename__ = "pharmacy_items"
+
+    id: Mapped[str] = _uuid_col()
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    batch_no: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    supplier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    low_stock_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PharmacyDispense(Base):
+    """Stock-out log: who dispensed what to whom (audit + reorder signal)."""
+    __tablename__ = "pharmacy_dispenses"
+
+    id: Mapped[str] = _uuid_col()
+    item_id: Mapped[str] = mapped_column(String(36), ForeignKey("pharmacy_items.id", ondelete="CASCADE"), index=True)
+    patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    doctor_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class DocumentPage(Base):
+    """Vectorless-RAG page index: one row per extracted page per document.
+
+    Lets record-grounded Q&A retrieve and cite exact pages
+    ("CBC Report, page 2") with no embeddings and no vector database.
+    Rebuilt whenever a document's text is (re-)extracted.
+    """
+    __tablename__ = "document_pages"
+    __table_args__ = (
+        Index("ix_docpages_owner_doc_page", "owner_id", "document_id", "page_no"),
+    )
+
+    id: Mapped[str] = _uuid_col()
+    document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    page_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

@@ -7,7 +7,7 @@ export default function BottomNav() {
 
   const items = [
     { to: '/', label: 'Home', icon: '🏠', end: true },
-    { to: '/medicines', label: 'Medicines', icon: '💊' },
+    { to: user ? '/medicines' : '/login', label: 'Medicines', icon: '💊' },
     { to: '/contact', label: 'Help', icon: '💬' },
     user
       ? { to: '/profile', label: 'Profile', icon: '👤' }

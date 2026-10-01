@@ -180,7 +180,7 @@ export default function SmartUpload({ meta, activeId, onUploaded, notify }) {
     <div>
       <div ref={dropRef} style={s.drop}>
         <b>📥 Drop scan photos / PDFs here</b> or{' '}
-        <label style={s.browse}>Browse files<input type="file" multiple accept="image/*,video/*,.pdf,.txt" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} /></label>
+        <label style={s.browse}>Browse files<input type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx,.csv,.txt" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} /></label>
         <div style={{ fontSize: 12, color: '#64748b' }}>Multiple files OK · empty files rejected · tip: run 🧠 AI detect before uploading so type + content are pre-filled</div>
       </div>
       {!!queue.length && (

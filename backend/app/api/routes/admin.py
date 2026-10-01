@@ -12,17 +12,38 @@ router = APIRouter()
 
 @router.get("/stats", response_model=AdminStatsOut)
 def stats(db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    from datetime import date as _date
     by_role = dict(db.query(User.role, func.count(User.id)).group_by(User.role).all())
+    try:
+        from app.models.tables import Invoice
+        from sqlalchemy import func as _f
+        revenue = db.query(_f.coalesce(_f.sum(Invoice.paid_amount), 0)).filter(
+            Invoice.status.in_(["paid", "partially_paid"])).scalar() or 0.0
+        pending = db.query(_f.coalesce(_f.sum(Invoice.amount - Invoice.paid_amount), 0)).filter(
+            Invoice.status.in_(["issued", "partially_paid"])).scalar() or 0.0
+        invoices = db.query(_f.count(Invoice.id)).scalar() or 0
+    except Exception:
+        revenue, pending, invoices = 0.0, 0.0, 0
+    try:
+        today_count = db.query(func.count(Appointment.id)).filter(
+            Appointment.date == _date.today()).scalar() or 0
+    except Exception:
+        today_count = 0
     return AdminStatsOut(
         users_total=db.query(func.count(User.id)).scalar() or 0,
         patients=by_role.get("patient", 0),
         doctors=by_role.get("doctor", 0),
         admins=by_role.get("admin", 0),
+        receptionists=by_role.get("receptionist", 0) + by_role.get("nurse", 0),
         documents=db.query(func.count(Document.id)).scalar() or 0,
         appointments_booked=db.query(func.count(Appointment.id)).filter_by(status="booked").scalar() or 0,
+        appointments_today=today_count,
         visit_notes=db.query(func.count(VisitNote.id)).scalar() or 0,
         contact_messages=db.query(func.count(ContactMessage.id)).scalar() or 0,
         reviews=db.query(func.count(Review.id)).scalar() or 0,
+        invoices=invoices,
+        revenue_collected=round(float(revenue or 0.0), 2),
+        fees_pending=round(float(pending or 0.0), 2),
     )
 
 
@@ -68,7 +89,7 @@ def list_users(q: str | None = None, role: str | None = None, db: Session = Depe
 
 @router.patch("/users/{user_id}/role", response_model=UserOut)
 def set_role(user_id: str, role: str, db: Session = Depends(get_db), user: User = Depends(require_admin)):
-    if role not in ("patient", "doctor", "admin"):
+    if role not in ("patient", "doctor", "admin", "receptionist", "nurse"):
         raise HTTPException(status_code=400, detail="Invalid role")
     target = db.query(User).filter_by(id=user_id).first()
     if not target:

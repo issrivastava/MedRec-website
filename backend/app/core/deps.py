@@ -2,22 +2,43 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from app.core.security import decode_token
+from app.core.security import decode_token, is_expired_token
 from app.db.session import get_db
 from app.models.tables import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+def _unauthorized(detail: str | dict = "Not authenticated") -> HTTPException:
+    # WWW-Authenticate lets browsers/clients know a Bearer token is expected.
+    # dict details carry a machine-readable code (e.g. token_expired) that the
+    # frontend uses to trigger silent refresh vs full re-login. friendlyError
+    # already renders {message} from dict details, so this is backward-safe.
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+    token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> User:
-    user_id = decode_token(token)
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user = db.query(User).filter(User.id == user_id).first()
+    if not token:
+        raise _unauthorized()
+    claims = decode_token(token)
+    if not claims or not claims.get("sub"):
+        if token and is_expired_token(token):
+            raise _unauthorized({"code": "token_expired",
+                                 "message": "Session expired — refreshing, please retry"})
+        raise _unauthorized("Invalid or expired token")
+    user = db.query(User).filter(User.id == claims["sub"]).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise _unauthorized("User not found")
+    # Token revocation: password change bumps token_version, old JWTs die.
+    token_ver = claims.get("ver", 0)
+    if getattr(user, "token_version", 0) != token_ver:
+        raise _unauthorized("Session expired — please log in again")
     return user
 
 
@@ -33,6 +54,13 @@ def require_role(*roles: str):
 require_patient = require_role("patient")
 require_doctor = require_role("doctor")
 require_admin = require_role("admin")
+require_receptionist = require_role("receptionist", "admin")
+# Front-desk + clinical support: appointments, queue, check-in, billing,
+# patient directory search and pharmacy dispense (never clinical notes).
+require_staff = require_role("doctor", "receptionist", "nurse", "admin")
+require_clinical_staff = require_role("doctor", "nurse", "admin")
+
+STAFF_ROLES = ("doctor", "receptionist", "nurse", "admin")
 
 
 def is_assigned(db: Session, doctor_id: str, patient_id: str) -> bool:

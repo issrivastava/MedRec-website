@@ -22,6 +22,8 @@ export default function Timeline() {
   const [kind, setKind] = useState('')
   const [category, setCategory] = useState('')
   const [reportKind, setReportKind] = useState('')
+  const [q, setQ] = useState('')
+  const [openId, setOpenId] = useState(null)
   const selected = params.get('patient') || ''
 
   useEffect(() => {
@@ -43,8 +45,10 @@ export default function Timeline() {
 
   let lastYear = ''
   const visible = useMemo(() => {
+    const needle = (q || '').toLowerCase()
     return events.filter((e) => {
       if (kind && e.kind !== kind) return false
+      if (needle && !((e.title || '') + ' ' + (e.detail || '')).toLowerCase().includes(needle)) return false
       // Per-profile view: patients filter by active profile; doctors see all
       if (user?.role === 'patient' && activeId) {
         if (e.member_id) return e.member_id === activeId
@@ -54,14 +58,15 @@ export default function Timeline() {
       if (user?.role === 'patient' && !activeId) return true
       return true
     })
-  }, [events, kind, activeId, user])
+  }, [events, kind, q, activeId, user])
 
   return (
     <div style={s.wrap}>
       <h2 style={{ margin: '0 0 4px' }}>📈 Health Timeline</h2>
-      <p style={{ color: '#78716c', margin: '0 0 12px' }}>Every report, prescription and appointment — newest first.</p>
+      <p style={{ color: '#78716c', margin: '0 0 12px' }}>Every report, prescription and appointment — newest first. Click any card to expand.</p>
       {user?.role === 'patient' && <ProfileSwitcher compact />}
       <div className="toolbar-row">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Search timeline…" style={s.input} />
         <select value={kind} onChange={(e) => setKind(e.target.value)} style={s.input}>
           <option value="">All types</option>
           <option value="document">Reports</option>
@@ -95,15 +100,26 @@ export default function Timeline() {
           lastYear = year
           const st = KIND_STYLE[e.kind] || KIND_STYLE.document
           const [icon] = e.report_kind ? kindIcon(e.report_kind, [st.icon, '']) : [st.icon, '']
+          const key = `${e.kind}-${e.id}-${i}`
+          const open = openId === key
           return (
             <div key={i}>
               {showYear && <h3 style={s.year}>{year}</h3>}
-              <div style={{ ...s.card, background: st.bg, borderColor: st.border }}>
+              <div className={`tl-item${open ? ' open' : ''}`} onClick={() => setOpenId(open ? null : key)}
+                style={{ background: open ? undefined : st.bg, borderColor: open ? undefined : st.border }}>
                 <span style={s.date}>{e.date}</span>
                 <b> {icon} {e.title}</b>
                 {e.report_kind && <span className="pill pill-info" style={{ marginLeft: 8 }}>{kindLabel(e.report_kind)}</span>}
                 {e.member && <span style={s.member}>{e.member}</span>}
-                {e.detail && <p style={{ margin: '4px 0 0' }}>{e.detail}</p>}
+                <span style={{ float: 'right', color: '#64748b' }}>{open ? '▴' : '▾'}</span>
+                {(open || !e.detail || e.detail.length <= 160) && e.detail && <p style={{ margin: '6px 0 0' }}>{e.detail}</p>}
+                {!open && e.detail && e.detail.length > 160 && <p style={{ margin: '6px 0 0' }}>{e.detail.slice(0, 160)}…</p>}
+                {open && (
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <span className="pill pill-info">{e.kind}</span>
+                    {e.category && <span className="pill pill-info">{e.category}</span>}
+                  </div>
+                )}
               </div>
             </div>
           )

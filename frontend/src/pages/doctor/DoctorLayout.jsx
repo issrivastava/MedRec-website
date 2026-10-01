@@ -1,13 +1,22 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { avatarSrc } from '../../api'
+import api, { avatarSrc } from '../../api'
 import { DoctorProvider, useDoctor } from './DoctorContext'
 
 function Shell() {
   const { user, logout } = useAuth()
   const { patients, appts, emgCount } = useDoctor()
+  const [chatUnread, setChatUnread] = useState(0)
   const loc = useLocation()
   const pic = avatarSrc(user)
+
+  useEffect(() => {
+    const fetchChat = () => api.get('/api/messages/unread-count').then(({ data }) => setChatUnread(data.unread || 0)).catch(() => {})
+    fetchChat()
+    const t = setInterval(fetchChat, 30000)
+    return () => clearInterval(t)
+  }, [])
 
   const booked = (appts || []).filter((a) => a.status === 'booked').length
 
@@ -15,19 +24,19 @@ function Shell() {
   // patient detail /doctor/patients/:id counts as patients section
   const active = section === '' ? 'overview' : section
 
-  // Minimal classic menu: core daily work first, everything else under More.
+  // Minimal menu: core daily work first, everything else under More.
   const core = [
     { key: 'overview', label: 'Dashboard', icon: '🏠', to: '/doctor' },
     { key: 'patients', label: 'Patients', icon: '🧑‍🤝‍🧑', to: '/doctor/patients', badge: patients.length },
     { key: 'schedule', label: 'Appointments', icon: '📅', to: '/doctor/schedule', badge: booked },
     { key: 'queue', label: 'Live Queue', icon: '📺', to: '/doctor/queue' },
     { key: 'prescriptions', label: 'Prescriptions', icon: '✍️', to: '/doctor/prescriptions' },
+    { key: 'chat', label: 'Chat', icon: '💬', to: '/doctor/chat', badge: chatUnread },
     { key: 'emergency', label: 'Emergency', icon: '🚨', to: '/doctor/emergency', badge: emgCount },
     { key: 'profile', label: 'My Profile', icon: '👤', to: '/doctor/profile' },
   ]
   const more = [
     { key: 'practice', label: 'Practice (OPD)', icon: '🏥', to: '/doctor/practice' },
-    { key: 'chat', label: 'Chat', icon: '💬', to: '/doctor/chat' },
     { key: 'care', label: 'Referrals & Care', icon: '🔁', to: '/doctor/care' },
     { key: 'insights', label: 'Insights & AI', icon: '📊', to: '/doctor/insights' },
     { key: 'engage', label: 'Engage', icon: '📣', to: '/doctor/engage' },
@@ -36,7 +45,7 @@ function Shell() {
     { key: 'safety', label: 'Safety', icon: '🛡️', to: '/doctor/safety' },
     { key: 'reviews', label: 'Ratings & Reviews', icon: '⭐', to: '/doctor/reviews' },
     { key: 'medicines', label: 'Medicine Guide', icon: '💊', to: '/medicines' },
-    { key: 'diseases', label: 'Disease Guide', icon: '🩺', to: '/diseases' },
+    { key: 'illnesses', label: 'Illness Guide', icon: '🩺', to: '/illnesses' },
     { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai' },
   ]
 
@@ -45,7 +54,7 @@ function Shell() {
   return (
     <div className="dash dash-doctor">
       <aside className="dash-side">
-        <div className="dash-side-title">🩺 DOCTOR — PRACTICE</div>
+        <div className="dash-side-title">DOCTOR · PRACTICE</div>
         {core.map((it) => (
           <NavLink
             key={it.key}
@@ -87,7 +96,7 @@ function Shell() {
       </aside>
       <div className="dash-main">
         <div className="dash-top">
-          <h1>Welcome back{firstName ? `, Dr. ${firstName}` : ''} <span className="pill pill-info">DOCTOR</span></h1>
+          <h1>Welcome back{firstName ? `, Dr. ${firstName}` : ''}</h1>
           <p>Appointments, patients and reports — everything else lives under More tools.</p>
         </div>
         <Outlet />

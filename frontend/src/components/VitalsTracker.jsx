@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../api'
+import { RangeToggle, filterByRange } from './HealthUX'
 
 const TYPES = [
   ['bp', 'BP (mmHg)'], ['sugar', 'Sugar (mg/dL)'],
@@ -124,6 +125,7 @@ export default function VitalsTracker({ patientId, role }) {
   const [hw, setHw] = useState({ height: '', weight: '', measured_at: '' })
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [range, setRange] = useState('6M')
 
   const load = async () => {
     const params = patientId && role === 'doctor' ? { patient_id: patientId } : {}
@@ -136,7 +138,7 @@ export default function VitalsTracker({ patientId, role }) {
   useEffect(() => { load().catch(console.error) }, [patientId])
 
   const trends = summary?.trends || {}
-  const pts = (k) => (trends[k] || []).filter((p) => p.value != null)
+  const pts = (k) => filterByRange((trends[k] || []).filter((p) => p.value != null), range)
   const heightPts = useMemo(() => pts('height'), [summary])
   const weightPts = useMemo(() => pts('weight'), [summary])
   const bmiPts = useMemo(() => pts('bmi'), [summary])
@@ -224,6 +226,10 @@ export default function VitalsTracker({ patientId, role }) {
       {summary?.hints?.map((h, i) => <div key={i} style={s.hint}>{h}</div>)}
 
       {/* Height / Weight / BMI graphs */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        <b style={{ fontSize: 14 }}>📈 Trends</b>
+        <RangeToggle value={range} onChange={setRange} />
+      </div>
       <div style={s.graphGrid}>
         <GrowthCard title="Height" icon="📏" points={heightPts} unit="cm" color="#2563eb" />
         <GrowthCard title="Weight" icon="⚖️" points={weightPts} unit="kg" color="#0d9488" />

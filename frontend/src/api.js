@@ -16,6 +16,31 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Silent session renewal: backend returns {code: 'token_expired'} on expiry.
+// Try POST /api/auth/refresh once with the old token, then retry the request.
+api.interceptors.response.use(
+  (res) => res,
+  async (err) => {
+    const orig = err.config
+    const detail = err.response?.data?.detail
+    const code = typeof detail === 'object' ? detail?.code : null
+    if (err.response?.status === 401 && code === 'token_expired' && orig && !orig._retriedRefresh) {
+      orig._retriedRefresh = true
+      try {
+        const { data } = await api.post('/api/auth/refresh')
+        if (data?.access_token) {
+          localStorage.setItem('medrec_token', data.access_token)
+          if (data.user) localStorage.setItem('medrec_user', JSON.stringify(data.user))
+          orig.headers = orig.headers || {}
+          orig.headers.Authorization = `Bearer ${data.access_token}`
+          return api(orig)
+        }
+      } catch { /* fall through to original error */ }
+    }
+    throw err
+  }
+)
+
 export function avatarSrc(user) {
   if (!user?.avatar_url) return null
   return `${import.meta.env.VITE_API_URL || ''}${user.avatar_url}`

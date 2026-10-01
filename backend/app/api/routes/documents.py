@@ -1,9 +1,9 @@
 from datetime import date
 from pathlib import Path
 import re
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.core.deps import get_current_user
@@ -15,13 +15,36 @@ from app.services.ollama import summarize_document, summarize_overall
 
 router = APIRouter()
 
+
+def _clamp_limit(limit: int | None, default: int = 100) -> int:
+    """Clamp ?limit= to settings.MAX_PAGE_SIZE so lists stay fast."""
+    try:
+        v = int(limit) if limit is not None else default
+    except Exception:
+        v = default
+    return max(1, min(v, settings.MAX_PAGE_SIZE))
+
+
+def _clamp_offset(offset: int | None) -> int:
+    try:
+        v = int(offset) if offset is not None else 0
+    except Exception:
+        v = 0
+    return max(0, v)
+
 ALLOWED = {
     "application/pdf", "image/png", "image/jpeg", "image/webp",
-    "image/tiff", "image/bmp", "text/plain",
+    "image/tiff", "image/bmp", "text/plain", "text/csv", "application/csv",
+    "text/tab-separated-values",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     # test-result videos (stored for viewing; no text extraction)
     "video/mp4", "video/webm", "video/quicktime", "video/x-msvideo",
     "video/3gpp", "video/3gpp2", "video/x-matroska",
 }
+
+DOC_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp",
+            ".txt", ".csv", ".tsv", ".doc", ".docx")
 
 VIDEO_EXTS = (".mp4", ".webm", ".mov", ".m4v", ".3gp", ".3g2", ".mkv")
 
@@ -85,6 +108,61 @@ def ai_set_model(body: dict, db: Session = Depends(get_db), user: User = Depends
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"active": active}
+
+
+@router.get("/taxonomy", response_model=dict)
+def get_taxonomy():
+    """Single source of truth for the file manager: Type/Category/Kind
+    tree + which kinds are lab-comparable. Public (no PHI)."""
+    from app.services.report_kinds import (
+        CATEGORIES, KIND_TO_CATEGORY, KIND_TO_DOC_TYPE, DOC_TYPES,
+        COMPARABLE_KINDS, PRESCRIPTION_KINDS,
+    )
+    return {"doc_types": DOC_TYPES, "categories": CATEGORIES,
+            "kind_to_category": KIND_TO_CATEGORY,
+            "kind_to_doc_type": KIND_TO_DOC_TYPE,
+            "comparable_kinds": sorted(COMPARABLE_KINDS),
+            "prescription_kinds": sorted(PRESCRIPTION_KINDS)}
+
+
+@router.post("/fix-labels", response_model=dict)
+def fix_labels(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """One-click repair for mislabelled uploads (e.g. prescription stored
+    as report). Re-runs the canonical resolver over the caller's own docs
+    using title + stored filename + notes; only mismatched rows are updated.
+    Returns {fixed, total, details}. Doctors fix nothing (patient-owned)."""
+    if user.role != "patient":
+        raise HTTPException(status_code=403, detail="Patients only")
+    from pathlib import Path as _Path
+    from app.services.report_kinds import resolve_classification as _resolve
+    docs = db.query(Document).filter_by(owner_id=user.id).all()
+    fixed = 0
+    details: list[dict] = []
+    for d in docs:
+        try:
+            fname = _Path(d.file_path or "").name
+        except Exception:
+            fname = ""
+        new_dt, new_cat, new_kind, _ = _resolve(
+            doc_type=d.doc_type, category=getattr(d, "category", None),
+            report_kind=getattr(d, "report_kind", None),
+            title=d.title, filename=fname, notes=d.notes,
+        )
+        # Only touch rows where the kind was missing/wrong or the type
+        # contradicts the kind — never wipe a good explicit label to None.
+        if new_kind and (new_kind != getattr(d, "report_kind", None)
+                         or new_dt != d.doc_type
+                         or new_cat != getattr(d, "category", None)):
+            details.append({"id": d.id, "title": d.title,
+                            "before": {"doc_type": d.doc_type,
+                                       "category": getattr(d, "category", None),
+                                       "report_kind": getattr(d, "report_kind", None)},
+                            "after": {"doc_type": new_dt, "category": new_cat,
+                                      "report_kind": new_kind}})
+            d.doc_type, d.category, d.report_kind = new_dt, new_cat, new_kind
+            fixed += 1
+    db.commit()
+    return {"fixed": fixed, "total": len(docs), "details": details[:50]}
 
 
 def _vision_b64(data: bytes, filename: str, mimetype: str | None) -> str | None:
@@ -163,13 +241,15 @@ def list_docs(
     q: str | None = None,
     group_by: str | None = None,  # accepted for client convenience; sorting applied
     family_member_id: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Patients list their own docs. Doctors must use /doctors/patients/{id}/documents."""
     if user.role != "patient":
         raise HTTPException(status_code=403, detail="Use doctor patient view")
-    query = db.query(Document).filter(Document.owner_id == user.id)
+    query = db.query(Document).options(selectinload(Document.ai_summary)).filter(Document.owner_id == user.id)
     if family_member_id:
         query = query.filter(Document.family_member_id == family_member_id)
     if doctor_name:
@@ -198,11 +278,56 @@ def list_docs(
         query = query.order_by(Document.report_kind.asc().nullslast(), Document.visit_date.desc())
     else:  # date-wise default
         query = query.order_by(Document.visit_date.desc().nullslast(), Document.created_at.desc())
+    query = query.limit(_clamp_limit(limit)).offset(_clamp_offset(offset))
     return [_doc_out(d) for d in query.all()]
+
+
+def _process_upload_ocr(doc_id: str) -> None:
+    """Background OCR + lab analysis so uploads return instantly.
+
+    Runs after the 201 response with its own DB session (the request
+    session is closed by then). Never raises — failures just leave
+    ocr_text empty for retry via re-upload/OCR preview.
+    """
+    try:
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            doc = db.query(Document).filter_by(id=doc_id).first()
+            if not doc:
+                return
+            # Skip videos + docs that already have text (retry-safe).
+            if doc.ocr_text:
+                return
+            try:
+                raw = Path(doc.file_path).read_bytes()
+            except Exception:
+                return
+            try:
+                doc.ocr_text = extract_text(raw, doc.file_mimetype, Path(doc.file_path).name)
+            except Exception:
+                doc.ocr_text = ""
+            db.commit()
+            # Vectorless-RAG page index (per-page rows for cited Q&A).
+            try:
+                from app.services.page_rag import build_page_index
+                build_page_index(db, doc, raw)
+            except Exception:
+                pass
+            try:
+                from app.api.routes.alerts import analyze_document
+                analyze_document(db, doc)
+            except Exception:
+                pass
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 @router.post("", response_model=DocumentOut, status_code=201)
 async def upload_doc(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = Form(...),
     doc_type: str = Form("report"),
@@ -218,39 +343,40 @@ async def upload_doc(
 ):
     if user.role != "patient":
         raise HTTPException(status_code=403, detail="Only patients upload documents")
-    if doc_type not in ("report", "prescription", "lab", "scan", "other"):
-        raise HTTPException(status_code=400, detail="Invalid doc_type")
     from app.services.report_kinds import (
-        valid_category, valid_kind, category_of, infer_kind, KIND_TO_DOC_TYPE,
+        valid_category, valid_kind, valid_doc_type, resolve_classification,
     )
-    # Auto-suggest kind from title when the patient doesn't pick one
-    if not report_kind:
-        report_kind = infer_kind(title)
+    if not valid_doc_type(doc_type):
+        raise HTTPException(status_code=400, detail="Invalid doc_type")
     if not valid_kind(report_kind):
         raise HTTPException(status_code=400, detail="Invalid report_kind")
     if not valid_category(category):
         raise HTTPException(status_code=400, detail="Invalid category")
-    # Fill category from kind, and keep legacy doc_type consistent
-    if report_kind and not category:
-        category = category_of(report_kind)
-    if report_kind and doc_type == "report" and KIND_TO_DOC_TYPE.get(report_kind) not in (None, "report"):
-        doc_type = KIND_TO_DOC_TYPE[report_kind]
+    # Single source of truth: kind is authoritative. Infer from
+    # title + filename + notes combined so "prescription.pdf" titled
+    # "My doc" is still stored as prescription — never as generic report.
+    # An explicitly picked kind always wins over inference; an explicitly
+    # picked doc_type with no kind reverse-maps to a matching kind.
+    doc_type, category, report_kind, _ = resolve_classification(
+        doc_type=doc_type, category=category, report_kind=report_kind,
+        title=title, filename=file.filename or "", notes=notes,
+    )
     if family_member_id:
         from app.models.tables import FamilyMember
         if not db.query(FamilyMember).filter_by(id=family_member_id, owner_id=user.id).first():
             raise HTTPException(status_code=400, detail="Unknown family member")
     data = await file.read()
     if not data:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes) — please choose a valid photo, PDF or video.")
+        raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes) — please choose a valid PDF, Word, CSV, text, photo or video.")
     # Videos run under a larger limit (phone clips); everything else uses MAX_UPLOAD_MB.
     is_video = _is_video(file.content_type, file.filename or "")
     max_mb = settings.VIDEO_MAX_UPLOAD_MB if is_video else settings.MAX_UPLOAD_MB
     if len(data) > max_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File too large (max {max_mb} MB{' for video' if is_video else ''})")
     if file.content_type not in ALLOWED and not (file.filename or "").lower().endswith(
-        (".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp", ".txt", *VIDEO_EXTS)
+        (*DOC_EXTS, *VIDEO_EXTS)
     ):
-        raise HTTPException(status_code=400, detail="Unsupported file type (photo, video, PDF or text)")
+        raise HTTPException(status_code=400, detail="Unsupported file type (PDF, Word .doc/.docx, CSV, text, photo or video)")
 
     upload_dir = Path(settings.UPLOAD_DIR) / user.id
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -261,7 +387,17 @@ async def upload_doc(
     dest = upload_dir / stored
     dest.write_bytes(data)
 
-    ocr_text = extract_text(data, file.content_type, file.filename or "")
+    # Save immediately with empty OCR so the response is instant;
+    # text extraction + lab alerts run in the background (see _process_upload_ocr).
+    # Fast path: tiny plain-text files extract in microseconds — do inline.
+    is_texty = (file.content_type or "").lower().startswith("text/") or (file.filename or "").lower().endswith(
+        (".txt", ".csv", ".tsv", ".log", ".md"))
+    ocr_text = ""
+    if is_texty and len(data) < 512 * 1024:
+        try:
+            ocr_text = extract_text(data, file.content_type, file.filename or "")
+        except Exception:
+            ocr_text = ""
     doc = Document(
         owner_id=user.id, title=title, doc_type=doc_type,
         category=category or None, report_kind=report_kind or None,
@@ -274,12 +410,24 @@ async def upload_doc(
     db.add(doc)
     db.commit()
     db.refresh(doc)
-    # auto lab-value analysis -> health alerts + notification
-    try:
-        from app.api.routes.alerts import analyze_document
-        analyze_document(db, doc)
-    except Exception:
-        pass
+    if not ocr_text:
+        background_tasks.add_task(_process_upload_ocr, doc.id)
+    else:
+        # Text was already extracted inline — index its pages now (fast,
+        # in-request: plain text is a single page) and run labs off-request.
+        try:
+            from app.services.page_rag import build_page_index
+            build_page_index(db, doc, data)
+        except Exception:
+            pass
+        try:
+            background_tasks.add_task(_process_upload_ocr, doc.id)
+        except Exception:
+            try:
+                from app.api.routes.alerts import analyze_document
+                analyze_document(db, doc)
+            except Exception:
+                pass
     return _doc_out(doc)
 
 
@@ -298,11 +446,16 @@ def update_doc(doc_id: str, data: DocumentUpdateIn, db: Session = Depends(get_db
     doc = db.query(Document).filter_by(id=doc_id).first()
     if not doc or doc.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Document not found")
-    from app.services.report_kinds import valid_category as _valid_cat, valid_kind as _valid_kind
+    from app.services.report_kinds import (
+        valid_category as _valid_cat, valid_kind as _valid_kind,
+        valid_doc_type as _valid_dt, resolve_classification as _resolve,
+    )
     if data.category is not None and not _valid_cat(data.category):
         raise HTTPException(status_code=400, detail="Invalid category")
     if data.report_kind is not None and not _valid_kind(data.report_kind):
         raise HTTPException(status_code=400, detail="Invalid report_kind")
+    if getattr(data, "doc_type", None) is not None and not _valid_dt(data.doc_type):
+        raise HTTPException(status_code=400, detail="Invalid doc_type")
     last = db.query(DocumentVersion).filter_by(document_id=doc.id).order_by(DocumentVersion.version_no.desc()).first()
     next_no = (last.version_no + 1) if last else 1
     db.add(DocumentVersion(
@@ -312,6 +465,22 @@ def update_doc(doc_id: str, data: DocumentUpdateIn, db: Session = Depends(get_db
     ))
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(doc, k, v)
+    # Keep Type/Category/Kind consistent: a kind edit re-derives the other
+    # two so "kind=prescription" can never stay "doc_type=report".
+    if "report_kind" in data.model_dump(exclude_unset=True) or "category" in data.model_dump(exclude_unset=True) or "doc_type" in data.model_dump(exclude_unset=True):
+        new_dt, new_cat, new_kind, _ = _resolve(
+            doc_type=getattr(doc, "doc_type", "report"), category=getattr(doc, "category", None),
+            report_kind=getattr(doc, "report_kind", None),
+            title=doc.title, filename="", notes=doc.notes,
+        )
+        # Only overwrite when the resolver produced a kind (or the user
+        # explicitly cleared it) — never wipe a good kind to None.
+        if new_kind:
+            doc.doc_type, doc.category, doc.report_kind = new_dt, new_cat, new_kind
+        elif getattr(doc, "report_kind", None) is None:
+            doc.doc_type = new_dt
+            if getattr(doc, "category", None) is None:
+                doc.category = new_cat
     db.commit()
     db.refresh(doc)
     # Re-run lab analysis if visit date changed (keeps trends dated correctly)
@@ -375,6 +544,11 @@ def delete_doc(doc_id: str, db: Session = Depends(get_db), user: User = Depends(
         Path(doc.file_path).unlink(missing_ok=True)
     except Exception:
         pass
+    try:
+        from app.models.tables import DocumentPage
+        db.query(DocumentPage).filter_by(document_id=doc.id).delete(synchronize_session=False)
+    except Exception:
+        pass
     db.delete(doc)
     db.commit()
     return None
@@ -435,6 +609,37 @@ def ocr_preview(doc_id: str, db: Session = Depends(get_db), user: User = Depends
             "has_text": len(text) > 20}
 
 
+@router.get("/{doc_id}/pages", response_model=dict)
+def doc_page_index(doc_id: str, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Vectorless-RAG page index for one document: per-page text + char counts.
+
+    Powers cited Q&A ("page 2 of your CBC report"). Rebuilt automatically on
+    upload; pass rebuild=true (owner only) to force re-extraction.
+    """
+    from app.models.tables import DocumentPage
+    doc = db.query(Document).filter_by(id=doc_id).first()
+    if not doc or not _can_access(db, user, doc):
+        raise HTTPException(status_code=404, detail="Document not found")
+    rows = (db.query(DocumentPage).filter_by(document_id=doc.id)
+            .order_by(DocumentPage.page_no.asc()).all())
+    return {"doc_id": doc.id, "title": doc.title, "pages": len(rows),
+            "results": [{"page": r.page_no, "chars": r.chars,
+                         "preview": (r.text or "")[:600]} for r in rows]}
+
+
+@router.post("/{doc_id}/reindex", response_model=dict)
+def doc_reindex(doc_id: str, db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
+    """Force-rebuild the page index from the stored file (owner only)."""
+    from app.services.page_rag import build_page_index
+    doc = db.query(Document).filter_by(id=doc_id).first()
+    if not doc or doc.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    n = build_page_index(db, doc)
+    return {"doc_id": doc.id, "pages": n}
+
+
 @router.post("/{doc_id}/understand", response_model=dict)
 def understand_stored(doc_id: str, apply: bool = False, db: Session = Depends(get_db),
                       user: User = Depends(get_current_user)):
@@ -461,16 +666,27 @@ def understand_stored(doc_id: str, apply: bool = False, db: Session = Depends(ge
     if apply:
         if doc.owner_id != user.id:
             raise HTTPException(status_code=403, detail="Only the owner can apply AI detection")
-        from app.services.report_kinds import valid_category as _vc, valid_kind as _vk
-        if result.get("report_kind") and _vk(result["report_kind"]):
-            doc.report_kind = result["report_kind"]
-            applied.append("report_kind")
-        if result.get("category") and _vc(result["category"]):
-            doc.category = result["category"]
-            applied.append("category")
-        if result.get("doc_type") and result["doc_type"] in ("report", "prescription", "lab", "scan", "other"):
-            doc.doc_type = result["doc_type"]
-            applied.append("doc_type")
+        from app.services.report_kinds import resolve_classification as _resolve2
+        # Resolve kind/category/doc_type TOGETHER so they can never disagree
+        # (kind authoritative — same resolver as upload).
+        ai_kind = result.get("report_kind")
+        ai_cat = result.get("category")
+        ai_dt = result.get("doc_type")
+        if ai_kind or ai_cat or ai_dt:
+            new_dt, new_cat, new_kind, _ = _resolve2(
+                doc_type=ai_dt or doc.doc_type, category=ai_cat or getattr(doc, "category", None),
+                report_kind=ai_kind or getattr(doc, "report_kind", None),
+                title=doc.title, filename="", notes=doc.notes,
+            )
+            if new_kind and new_kind != getattr(doc, "report_kind", None):
+                doc.report_kind = new_kind
+                applied.append("report_kind")
+            if new_cat and new_cat != getattr(doc, "category", None):
+                doc.category = new_cat
+                applied.append("category")
+            if new_dt and new_dt != doc.doc_type:
+                doc.doc_type = new_dt
+                applied.append("doc_type")
         for key in ("doctor_name", "hospital"):
             if result.get(key) and not getattr(doc, key):
                 setattr(doc, key, result[key][:255])
@@ -522,20 +738,15 @@ def auto_classify(title: str = Form(""), filename: str = Form(""),
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Smart upload: guess category/report_kind/doc_type/title from filename + title.
 
-    Rule-based (instant, offline) + kind inference from report_kinds service.
-    Frontend calls this on file-select to prefill the upload form."""
-    from app.services.report_kinds import infer_kind, category_of, KIND_TO_DOC_TYPE
-    text = f"{title} {filename} {notes or ''}".lower()
-    kind = infer_kind(f"{title} {filename}")
-    category = category_of(kind) if kind else None
-    doc_type = KIND_TO_DOC_TYPE.get(kind, "report") if kind else "report"
-    # keyword overrides for common cases
-    if any(k in text for k in ("prescription", "rx", "medicines")):
-        doc_type, category = "prescription", "prescription"
-    if any(k in text for k in ("xray", "x-ray", "mri", "ct scan", "ultrasound", "scan")):
-        doc_type = "scan"
-    if any(k in text for k in ("cbc", "blood", "urine", "thyroid", "sugar", "lipid", "lft", "kft", "hba1c")):
-        doc_type = "lab"
+    Rule-based (instant, offline) via report_kinds.resolve_classification —
+    the SAME resolver upload uses, so the suggestion preview always matches
+    what will actually be stored. Frontend calls this on file-select to
+    prefill the upload form."""
+    from app.services.report_kinds import resolve_classification
+    doc_type, category, kind, inferred = resolve_classification(
+        doc_type="report", category=None, report_kind=None,
+        title=title, filename=filename, notes=notes,
+    )
     suggested_title = (title or filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ")).strip()[:120]
     # duplicate detection: same title + similar size bucket already exists
     dupes = []
@@ -548,4 +759,4 @@ def auto_classify(title: str = Form(""), filename: str = Form(""),
             "suggested_kind": kind, "suggested_category": category,
             "suggested_doc_type": doc_type,
             "possible_duplicates": dupes,
-            "confidence": "high" if kind else "low"}
+            "confidence": "high" if kind and not inferred else ("medium" if kind else "low")}

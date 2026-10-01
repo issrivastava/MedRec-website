@@ -49,6 +49,14 @@ Option B — skip Postgres and use SQLite for a first run:
 ```
 DATABASE_URL=sqlite:///./medrec.db
 ```
+Schema is versioned with Alembic (`backend/alembic/versions/`). The app
+auto-upgrades to `head` on startup; for manual control from `backend/`:
+```
+.venv\Scripts\Activate.ps1
+alembic upgrade head                          # apply pending migrations
+alembic revision --autogenerate -m "add xyz"  # after changing models
+```
+New schema changes go in migrations — never inline DDL in `app/main.py`.
 
 ### 2. Backend (Python 3.11 REQUIRED)
 ```powershell

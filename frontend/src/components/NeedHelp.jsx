@@ -19,17 +19,24 @@ const ROUTE_HELP = {
       { q: 'The brand I searched is missing?', a: 'Try the generic/salt name — e.g. Paracetamol instead of Crocin. Indian brand names are auto-translated where possible.' },
     ],
   },
-  '/diseases': {
-    title: '🩺 Diseases help',
+  '/illnesses': {
+    title: '🩺 Illnesses help',
     faqs: [
-      { q: 'Where does disease info come from?', a: 'The free Wikipedia encyclopedia, with a built-in offline guide as backup. Always confirm with your doctor.' },
-      { q: 'How do I find a doctor for this condition?', a: 'Open any disease and tap "Find doctors for appointment" — it takes you to the right specialists at Bombay, Apollo or Fortis.' },
+      { q: 'Where does illness info come from?', a: 'The free Wikipedia encyclopedia, with a built-in offline guide as backup. Always confirm with your doctor.' },
+      { q: 'How do I find a doctor for this condition?', a: 'Open any illness and tap "Find doctors for appointment" — it takes you to the right specialists at Bombay, Apollo, Fortis, Lilavati, Kokilaben or Nanavati Max.' },
+    ],
+  },
+  '/diseases': {
+    title: '🩺 Illnesses help',
+    faqs: [
+      { q: 'Where does illness info come from?', a: 'The free Wikipedia encyclopedia, with a built-in offline guide as backup. Always confirm with your doctor.' },
+      { q: 'How do I find a doctor for this condition?', a: 'Open any illness and tap "Find doctors for appointment" — it takes you to the right specialists at Bombay, Apollo, Fortis, Lilavati, Kokilaben or Nanavati Max.' },
     ],
   },
   '/find-doctors': {
     title: '🏥 Hospital doctors help',
     faqs: [
-      { q: 'How do I book?', a: 'Step 1: pick Bombay, Apollo or Fortis. Step 2: choose a specialty and tap "View doctors & book" — booking happens on the hospital site.' },
+      { q: 'How do I book?', a: 'Step 1: pick a hospital (Bombay, Apollo, Fortis, Lilavati, Kokilaben or Nanavati Max). Step 2: tap "📅 Book Appointment" for the official hospital booking page, or choose a specialty and tap "📅 Book …" — booking happens on the hospital site.' },
       { q: 'What does each department do?', a: 'Switch to the Departments tab below — every department’s purpose and how it works is listed there.' },
     ],
     tab: 'departments',
@@ -163,26 +170,27 @@ export default function NeedHelp() {
 
 const s = {
   fab: {
-    position: 'fixed', right: 18, bottom: 18, zIndex: 60,
+    position: 'fixed', right: 18, bottom: 76, zIndex: 60,
     display: 'flex', alignItems: 'center', gap: 8,
-    background: '#1a2e45', color: '#fff', border: '1px solid #1a2e45',
-    borderRadius: 999, padding: '12px 18px', cursor: 'pointer',
-    boxShadow: '0 4px 16px rgba(26,46,69,.35)',
+    background: '#101828', color: '#fff', border: '1px solid #101828',
+    borderRadius: 999, padding: '11px 18px', cursor: 'pointer',
+    boxShadow: '0 12px 28px -8px rgba(16,24,40,.4)',
+    fontFamily: 'Inter, sans-serif',
   },
   panel: {
-    position: 'fixed', right: 18, bottom: 76, zIndex: 60, width: 'min(380px, calc(100vw - 36px))',
-    background: '#fff', border: '1px solid #c9d4e2', borderLeft: '4px solid #1a2e45',
-    borderRadius: 10, padding: 14, boxShadow: '0 8px 30px rgba(26,46,69,.25)',
+    position: 'fixed', right: 18, bottom: 132, zIndex: 60, width: 'min(380px, calc(100vw - 36px))',
+    background: '#fff', border: '1px solid #e9edf2',
+    borderRadius: 16, padding: 16, boxShadow: '0 16px 40px -12px rgba(16,24,40,.25)',
     maxHeight: 'min(64vh, 520px)', overflow: 'auto',
   },
   head: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 },
-  x: { border: '1px solid #c9d4e2', background: '#fff', borderRadius: 6, cursor: 'pointer', padding: '2px 8px' },
-  tabs: { display: 'flex', gap: 6, marginBottom: 8 },
-  tab: { flex: 1, padding: '6px 8px', cursor: 'pointer', fontSize: 13 },
-  tabOn: { flex: 1, padding: '6px 8px', cursor: 'pointer', fontSize: 13, background: '#1a2e45', color: '#fff', border: '1px solid #1a2e45' },
-  search: { width: '100%', padding: 8, fontSize: 14, marginBottom: 8 },
+  x: { border: '1px solid #e9edf2', background: '#fff', borderRadius: 8, cursor: 'pointer', padding: '2px 8px' },
+  tabs: { display: 'flex', gap: 6, marginBottom: 8, background: '#f1f4f8', padding: 4, borderRadius: 999 },
+  tab: { flex: 1, padding: '7px 8px', cursor: 'pointer', fontSize: 13, border: 0, background: 'transparent', borderRadius: 999, fontWeight: 600, color: '#667085' },
+  tabOn: { flex: 1, padding: '7px 8px', cursor: 'pointer', fontSize: 13, background: '#fff', color: '#101828', border: '1px solid #e9edf2', borderRadius: 999, fontWeight: 700, boxShadow: '0 1px 2px rgba(16,24,40,.08)' },
+  search: { width: '100%', padding: '9px 12px', fontSize: 14, marginBottom: 8, borderRadius: 12 },
   list: { display: 'flex', flexDirection: 'column', gap: 8 },
-  item: { border: '1px solid #dfe3e8', borderRadius: 6, padding: '8px 10px', background: '#f8f9fa' },
-  primary: { background: '#1a2e45', color: '#fff', borderRadius: 6, padding: '8px 12px', textDecoration: 'none', fontWeight: 700, fontSize: 14 },
-  ghost: { border: '1px solid #1a2e45', color: '#1a2e45', borderRadius: 6, padding: '8px 12px', textDecoration: 'none', fontWeight: 700, fontSize: 14, background: '#fff' },
+  item: { border: '1px solid #e9edf2', borderRadius: 12, padding: '9px 12px', background: '#fbfcfd' },
+  primary: { background: '#101828', color: '#fff', borderRadius: 999, padding: '8px 14px', textDecoration: 'none', fontWeight: 700, fontSize: 13.5 },
+  ghost: { border: '1px solid #e9edf2', color: '#101828', borderRadius: 999, padding: '8px 14px', textDecoration: 'none', fontWeight: 650, fontSize: 13.5, background: '#fff' },
 }

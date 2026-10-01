@@ -5,10 +5,13 @@ from app.api.routes import reviews, emergency, history, analytics
 from app.api.routes import medicines
 from app.api.routes import diseases
 from app.api.routes import hospitals
+from app.api.routes import justdial
 from app.api.routes import assistant
 from app.api.routes import wellness, sharing, messages, care, compare
 from app.api.routes import practice
 from app.api.routes import clinical
+from app.api.routes import realtime
+from app.api.routes import directory, billing, pharmacy, fhir
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -30,8 +33,13 @@ api_router.include_router(emergency.router, prefix="/emergency", tags=["emergenc
 api_router.include_router(history.router, prefix="/history", tags=["history"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(medicines.router, prefix="/medicines", tags=["medicines"])
-api_router.include_router(diseases.router, prefix="/diseases", tags=["diseases"])
+# Legacy prefix (hidden from docs) kept for older frontends / bookmarks.
+api_router.include_router(diseases.router, prefix="/diseases", tags=["diseases"],
+                          include_in_schema=False)
+# New canonical name (UI says "Illnesses").
+api_router.include_router(diseases.router, prefix="/illnesses", tags=["illnesses"])
 api_router.include_router(hospitals.router, prefix="/hospitals", tags=["hospitals"])
+api_router.include_router(justdial.router, prefix="/justdial", tags=["justdial"])
 api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])
 api_router.include_router(wellness.router, prefix="/wellness", tags=["wellness"])
 api_router.include_router(sharing.router, prefix="/sharing", tags=["sharing"])
@@ -40,3 +48,8 @@ api_router.include_router(care.router, prefix="/care", tags=["care"])
 api_router.include_router(compare.router, prefix="/compare", tags=["compare"])
 api_router.include_router(practice.router, prefix="/practice", tags=["practice"])
 api_router.include_router(clinical.router, prefix="/clinical", tags=["clinical"])
+api_router.include_router(realtime.router, prefix="/ws", tags=["realtime"])
+api_router.include_router(directory.router, prefix="/directory", tags=["directory"])
+api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
+api_router.include_router(pharmacy.router, prefix="/pharmacy", tags=["pharmacy"])
+api_router.include_router(fhir.router, prefix="/fhir", tags=["fhir"])

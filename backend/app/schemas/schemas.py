@@ -6,7 +6,7 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     full_name: str = Field(min_length=2, max_length=255)
-    role: str = Field(pattern="^(patient|doctor|admin)$")
+    role: str = Field(pattern="^(patient|doctor|admin|receptionist|nurse)$")
     phone: str | None = None
     specialization: str | None = None
     license_no: str | None = None
@@ -42,7 +42,7 @@ class TokenOut(BaseModel):
 class FirebaseLoginIn(BaseModel):
     """Exchange a Firebase ID token (from the web app) for a local MedRec JWT."""
     id_token: str
-    role: str | None = Field(default=None, pattern="^(patient|doctor)$")
+    role: str | None = Field(default=None, pattern="^(patient|doctor|receptionist|nurse)$")
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     phone: str | None = None
     specialization: str | None = None
@@ -74,6 +74,9 @@ class PatientProfileIn(BaseModel):
     family_history_text: str | None = None
     menstrual_history: str | None = None
     mental_health: str | None = None
+    abha_id: str | None = None
+    abha_address: str | None = None
+    aadhaar_masked: str | None = None
 
 
 class PatientProfileOut(PatientProfileIn):
@@ -96,6 +99,9 @@ class DoctorProfileIn(BaseModel):
     bio: str | None = None
     clinic_address: str | None = None
     timings: str | None = None
+    department: str | None = None
+    qualification: str | None = None
+    registration_council: str | None = None
 
 
 class DoctorProfileOut(DoctorProfileIn):
@@ -385,12 +391,17 @@ class AdminStatsOut(BaseModel):
     patients: int
     doctors: int
     admins: int
+    receptionists: int = 0
     documents: int
     appointments_booked: int
+    appointments_today: int = 0
     visit_notes: int
     contact_messages: int
     unread_contact: int = 0
     reviews: int = 0
+    invoices: int = 0
+    revenue_collected: float = 0.0
+    fees_pending: float = 0.0
 
 
 class ReviewIn(BaseModel):
@@ -558,6 +569,7 @@ class DocumentUpdateIn(BaseModel):
     visit_date: date | None = None
     doctor_name: str | None = None
     hospital: str | None = None
+    doc_type: str | None = None
     category: str | None = None
     report_kind: str | None = None
 
@@ -1043,3 +1055,104 @@ class SurgeryOut(SurgeryIn):
 
     class Config:
         from_attributes = True
+
+
+# ---- Hospital ops: billing / pharmacy / directory ----
+
+class InvoiceItemIn(BaseModel):
+    label: str = Field(min_length=2, max_length=255)
+    qty: int = Field(default=1, ge=1, le=1000)
+    rate: float = Field(default=0.0, ge=0)
+
+
+class InvoiceIn(BaseModel):
+    patient_id: str
+    doctor_id: str | None = None
+    appointment_id: str | None = None
+    items: list[InvoiceItemIn] | None = None
+    amount: float | None = Field(default=None, ge=0)
+    currency: str = Field(default="INR", max_length=10)
+    status: str = Field(default="issued", pattern="^(draft|issued|paid|partially_paid|cancelled|refunded)$")
+    payment_mode: str | None = Field(default=None, pattern="^(cash|card|upi|netbanking|insurance|other)$")
+    paid_amount: float = Field(default=0.0, ge=0)
+    insurance_provider: str | None = Field(default=None, max_length=255)
+    insurance_policy_no: str | None = Field(default=None, max_length=100)
+    insurance_claim_amount: float | None = Field(default=None, ge=0)
+    notes: str | None = None
+
+
+class InvoiceOut(BaseModel):
+    id: str
+    patient_id: str
+    patient_name: str | None = None
+    doctor_id: str | None = None
+    doctor_name: str | None = None
+    appointment_id: str | None = None
+    receipt_no: str | None = None
+    amount: float
+    currency: str = "INR"
+    items: list | None = None
+    status: str
+    payment_mode: str | None = None
+    paid_amount: float = 0.0
+    balance: float = 0.0
+    insurance_provider: str | None = None
+    insurance_policy_no: str | None = None
+    insurance_claim_amount: float | None = None
+    notes: str | None = None
+    issued_at: datetime | None = None
+    paid_at: datetime | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InvoicePayIn(BaseModel):
+    paid_amount: float = Field(ge=0)
+    payment_mode: str = Field(pattern="^(cash|card|upi|netbanking|insurance|other)$")
+
+
+class PharmacyItemIn(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+    batch_no: str | None = Field(default=None, max_length=100)
+    expiry_date: date | None = None
+    quantity: int = Field(default=0, ge=0)
+    unit: str | None = Field(default=None, max_length=50)
+    price: float | None = Field(default=None, ge=0)
+    supplier: str | None = Field(default=None, max_length=255)
+    low_stock_at: int | None = Field(default=None, ge=0)
+
+
+class PharmacyItemOut(PharmacyItemIn):
+    id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DispenseIn(BaseModel):
+    item_id: str
+    patient_id: str | None = None
+    doctor_id: str | None = None
+    quantity: int = Field(default=1, ge=1, le=1000)
+    notes: str | None = None
+
+
+class DispenseOut(BaseModel):
+    id: str
+    item_id: str
+    item_name: str | None = None
+    patient_id: str | None = None
+    doctor_id: str | None = None
+    quantity: int
+    notes: str | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ArchiveIn(BaseModel):
+    archived: bool = True

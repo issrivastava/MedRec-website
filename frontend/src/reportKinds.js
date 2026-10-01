@@ -66,6 +66,61 @@ Object.values(REPORT_CATEGORIES).forEach((cat) => {
   cat.kinds.forEach((k) => { KIND_META[k.key] = k })
 })
 
+// Mirrors backend/app/services/report_kinds.py — kind is authoritative,
+// Type is DERIVED. Keep in sync (or fetch GET /api/documents/taxonomy).
+export const KIND_TO_CATEGORY = {}
+export const KIND_TO_DOC_TYPE = {
+  cbc: 'lab', tsh: 'lab', lft: 'lab', kft: 'lab', lipid: 'lab',
+  hba1c: 'lab', blood_sugar: 'lab', urine: 'lab', vitamin_d: 'lab',
+  esr_crp: 'lab', other_lab: 'lab',
+  xray: 'scan', mri: 'scan', ct: 'scan', ultrasound: 'scan',
+  mammography: 'scan', pet: 'scan', dexa: 'scan', other_imaging: 'scan',
+  ecg: 'report', echo: 'report', stress_test: 'report', holter: 'report',
+  prescription: 'prescription', discharge_summary: 'prescription',
+  consultation: 'report', vaccination: 'report', operative_note: 'report',
+  biopsy: 'lab',
+  general_report: 'report', scan_copy: 'scan', other: 'other',
+}
+Object.entries(REPORT_CATEGORIES).forEach(([cat, spec]) => {
+  spec.kinds.forEach((k) => { KIND_TO_CATEGORY[k.key] = cat })
+})
+
+export const DOC_TYPES = {
+  lab: 'Lab',
+  scan: 'Scan / Imaging',
+  report: 'Report (ECG, Echo, clinical…)',
+  prescription: 'Prescription',
+  other: 'Other',
+}
+
+// Only these carry numeric lab values for "What changed" trends.
+export const COMPARABLE_KINDS = new Set([
+  'cbc', 'tsh', 'lft', 'kft', 'lipid', 'hba1c',
+  'blood_sugar', 'urine', 'vitamin_d', 'esr_crp', 'other_lab', 'biopsy',
+])
+export const PRESCRIPTION_KINDS = new Set(['prescription', 'discharge_summary'])
+
+export function docTypeForKind(kind) {
+  return KIND_TO_DOC_TYPE[kind] || null
+}
+
+export function categoryForKind(kind) {
+  return KIND_TO_CATEGORY[kind] || null
+}
+
+export function isComparableDoc(d) {
+  if (!d) return false
+  if (d.report_kind) return COMPARABLE_KINDS.has(d.report_kind)
+  // Legacy unlabelled docs: lab/scan types with extracted text may still trend
+  return d.doc_type === 'lab'
+}
+
+export function isPrescriptionDoc(d) {
+  if (!d) return false
+  if (d.report_kind) return PRESCRIPTION_KINDS.has(d.report_kind)
+  return d.doc_type === 'prescription'
+}
+
 export function kindsForCategory(category) {
   if (!category) return Object.values(KIND_META)
   return REPORT_CATEGORIES[category]?.kinds || []

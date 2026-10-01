@@ -24,9 +24,9 @@ function specialtyFor(name) {
   return hit ? hit[1] : null
 }
 
-/* Reusable disease-description lookup.
-   Data: backend /api/diseases (free Wikipedia, no key + offline guide). */
-export default function DiseaseLookup({ compact = false }) {
+/* Reusable illness-description lookup.
+   Data: backend /api/illnesses (free Wikipedia, no key + offline guide). */
+export default function IllnessLookup({ compact = false }) {
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
   const [provider, setProvider] = useState('')
@@ -39,7 +39,7 @@ export default function DiseaseLookup({ compact = false }) {
   const [detailLoading, setDetailLoading] = useState(false)
 
   useEffect(() => {
-    api.get('/api/diseases/popular').then(({ data }) => setPopular(data.results || [])).catch(() => {})
+    api.get('/api/illnesses/popular').then(({ data }) => setPopular(data.results || [])).catch(() => {})
   }, [])
 
   const search = async (term) => {
@@ -47,13 +47,13 @@ export default function DiseaseLookup({ compact = false }) {
     if (query.length < 2) { setErr('Type at least 2 letters (e.g. Diabetes)'); return }
     setLoading(true); setErr(''); setDetail(null); setOpenTitle(null)
     try {
-      const { data } = await api.get('/api/diseases/search', { params: { q: query, limit: 8 } })
+      const { data } = await api.get('/api/illnesses/search', { params: { q: query, limit: 8 } })
       setResults(data.results || [])
       setProvider(data.provider || '')
       setDisclaimer(data.disclaimer || '')
       if (!data.results?.length) setErr('No matches found — try a simpler name (e.g. Flu instead of Influenza).')
     } catch (e) {
-      setErr(e.response?.data?.detail || 'Could not reach the disease database. Check your connection and retry.')
+      setErr(e.response?.data?.detail || 'Could not reach the illness database. Check your connection and retry.')
     } finally {
       setLoading(false)
     }
@@ -66,7 +66,7 @@ export default function DiseaseLookup({ compact = false }) {
     if (r.id && String(r.id).startsWith('local-')) { setDetail(r); return }
     setDetailLoading(true)
     try {
-      const { data } = await api.get('/api/diseases/detail', { params: { title: r.title } })
+      const { data } = await api.get('/api/illnesses/detail', { params: { title: r.title } })
       setDetail(data.result || { ...r, overview: r.snippet || '' })
     } catch {
       setDetail({ ...r, overview: r.snippet || '' })
@@ -86,7 +86,7 @@ export default function DiseaseLookup({ compact = false }) {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search disease — e.g. Diabetes, Dengue, Migraine…"
+          placeholder="Search illness — e.g. Diabetes, Dengue, Migraine…"
           style={{ flex: '1 1 240px', padding: 10, fontSize: 15 }}
         />
         <button type="submit" disabled={loading} style={s.primaryBtn}>
@@ -171,7 +171,7 @@ export default function DiseaseLookup({ compact = false }) {
       </div>
 
       {!results.length && !loading && !err && (
-        <div className="empty">🩺 Search any disease above to see its overview, symptoms, causes, diagnosis, treatment and prevention.</div>
+        <div className="empty">🩺 Search any illness above to see its overview, symptoms, causes, diagnosis, treatment and prevention.</div>
       )}
 
       {disclaimer && <p style={{ fontSize: 12, color: '#5d6b7a', marginTop: 12 }}>ℹ️ {disclaimer}</p>}

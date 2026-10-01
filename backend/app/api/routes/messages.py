@@ -23,22 +23,29 @@ def _sos(text: str) -> bool:
     return any(k in t for k in SOS_KEYWORDS)
 
 
-def _out(db: Session, m: Message) -> dict:
-    s = db.query(User).filter_by(id=m.sender_id).first()
-    attach_title = None
-    if getattr(m, "attachment_document_id", None):
-        d = db.query(Document).filter_by(id=m.attachment_document_id).first()
-        attach_title = d.title if d else None
-    return {"id": m.id, "doctor_id": m.doctor_id, "patient_id": m.patient_id,
-            "sender_id": m.sender_id, "sender_name": s.full_name if s else None,
-            "body": m.body,
-            "priority": getattr(m, "priority", "normal") or "normal",
-            "category": getattr(m, "category", "general") or "general",
-            "attachment_document_id": getattr(m, "attachment_document_id", None),
-            "attachment_title": attach_title,
-            "sos_detected": bool(getattr(m, "sos_detected", False)),
-            "read": m.read, "read_at": getattr(m, "read_at", None),
-            "created_at": m.created_at}
+def _out_many(db: Session, rows: list[Message]) -> list[dict]:
+    """Bulk version of _out: 2 queries total instead of 2 per message."""
+    senders = {u.id: u for u in db.query(User).filter(
+        User.id.in_({m.sender_id for m in rows})).all()} if rows else {}
+    doc_ids = {m.attachment_document_id for m in rows if getattr(m, "attachment_document_id", None)}
+    docs = {d.id: d for d in db.query(Document).filter(
+        Document.id.in_(doc_ids)).all()} if doc_ids else {}
+
+    out = []
+    for m in rows:
+        s = senders.get(m.sender_id)
+        d = docs.get(getattr(m, "attachment_document_id", None))
+        out.append({"id": m.id, "doctor_id": m.doctor_id, "patient_id": m.patient_id,
+                    "sender_id": m.sender_id, "sender_name": s.full_name if s else None,
+                    "body": m.body,
+                    "priority": getattr(m, "priority", "normal") or "normal",
+                    "category": getattr(m, "category", "general") or "general",
+                    "attachment_document_id": getattr(m, "attachment_document_id", None),
+                    "attachment_title": d.title if d else None,
+                    "sos_detected": bool(getattr(m, "sos_detected", False)),
+                    "read": m.read, "read_at": getattr(m, "read_at", None),
+                    "created_at": m.created_at})
+    return out
 
 
 def _resolve_user_id(db: Session, raw: str | None, expect_role: str) -> str | None:
@@ -142,7 +149,7 @@ def send_message(data: MessageIn, db: Session = Depends(get_db), user: User = De
                 _ = prof  # doctor gets in-app + email via notify(); SMS only if phone on file
         except Exception:
             pass
-    return _out(db, m)
+    return _out_many(db, [m])[0]
 
 
 @router.get("", response_model=list[MessageOut])
@@ -183,7 +190,7 @@ def list_messages(doctor_id: str | None = None, patient_id: str | None = None,
             except Exception:
                 pass
     db.commit()
-    return [_out(db, m) for m in rows]
+    return _out_many(db, rows)
 
 
 @router.get("/threads", response_model=list[dict])
@@ -197,11 +204,14 @@ def list_threads(db: Session = Depends(get_db), user: User = Depends(get_current
         key = "patient_id"
     else:
         return []
+    # Bulk-fetch counterparts in one query (was one query per thread).
+    other_ids = {getattr(m, key) for m in rows}
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(other_ids)).all()} if other_ids else {}
     seen: dict = {}
     for m in rows:
         other_id = getattr(m, key)
         if other_id not in seen:
-            other = db.query(User).filter_by(id=other_id).first()
+            other = users.get(other_id)
             seen[other_id] = {"other_id": other_id, "other_name": other.full_name if other else "?",
                               "other_health_id": getattr(other, "health_id", None) if other else None,
                               "other_email": other.email if other else None,

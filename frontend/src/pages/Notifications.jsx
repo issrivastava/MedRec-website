@@ -4,28 +4,72 @@ import api from '../api'
 
 export default function Notifications() {
   const [items, setItems] = useState([])
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const load = async () => {
     const { data } = await api.get('/api/notifications/my')
     setItems(data)
   }
-  useEffect(() => { load().catch(console.error) }, [])
+  useEffect(() => { load().catch((e) => setErr(e.message || 'Could not load notifications')) }, [])
+
+  const pingBadge = () => {
+    // Navbar bell polls every 30s — nudge it to refetch immediately.
+    try { window.dispatchEvent(new Event('medrec:notifications-changed')) } catch { /* ignore */ }
+  }
 
   const read = async (id) => {
-    await api.patch(`/api/notifications/${id}/read`)
-    load()
+    setErr('')
+    try {
+      await api.patch(`/api/notifications/${id}/read`)
+      await load()
+      pingBadge()
+    } catch (e) {
+      setErr(e.response?.data?.detail || e.message || 'Could not mark as read')
+    }
   }
   const readAll = async () => {
-    await api.post('/api/notifications/read-all')
-    load()
+    setErr('')
+    setBusy(true)
+    try {
+      const { data } = await api.post('/api/notifications/read-all')
+      await load()
+      pingBadge()
+      if (!data.marked) setErr('Nothing unread — you are all caught up.')
+    } catch (e) {
+      setErr(e.response?.data?.detail || e.message || 'Could not mark all as read')
+    } finally {
+      setBusy(false)
+    }
   }
+  const clearAll = async () => {
+    if (!items.length) return
+    if (!confirm(`Delete all ${items.length} notification(s)? This cannot be undone.`)) return
+    setErr('')
+    setBusy(true)
+    try {
+      await api.delete('/api/notifications/my')
+      await load()
+      pingBadge()
+    } catch (e) {
+      setErr(e.response?.data?.detail || e.message || 'Could not clear notifications')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const unread = items.filter((n) => !n.read).length
 
   return (
     <div style={s.wrap}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>Notifications</h2>
-        <button onClick={readAll}>Mark all read</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2>Notifications{unread > 0 ? ` (${unread} unread)` : ''}</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={readAll} disabled={busy || !unread}>Mark all read</button>
+          <button onClick={clearAll} disabled={busy || !items.length}>Clear all</button>
+        </div>
       </div>
+      {err && <p style={{ color: err.startsWith('Nothing') ? 'green' : 'red' }}>{err}</p>}
       {items.map((n) => (
         <div key={n.id} style={{ ...s.card, opacity: n.read ? 0.65 : 1 }}>
           <b>{n.read ? '' : '● '}{n.title}</b>

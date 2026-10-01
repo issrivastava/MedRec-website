@@ -125,7 +125,7 @@ export default function DoctorDashboard() {
     { key: 'chat', label: 'Chat', icon: '💬' },
     { key: 'care', label: 'Referrals', icon: '🔁' },
     { key: 'medicines', label: 'Medicine Description', icon: '💊', to: '/medicines' },
-    { key: 'diseases', label: 'Disease Description', icon: '🩺', to: '/diseases' },
+    { key: 'illnesses', label: 'Illness Description', icon: '🩺', to: '/illnesses' },
     { key: 'askai', label: 'Ask AI', icon: '🤖', to: '/ask-ai' },
     { key: 'reviews', label: 'My Reviews', icon: '⭐' },
   ]
