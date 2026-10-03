@@ -10,7 +10,7 @@ const RECORDS_PATHS = ['/upload', '/billing', '/directory', '/pharmacy']
 
 export default function Navbar() {
   const { user, logout } = useAuth()
-  const { lang, setLang, t } = useLang()
+  const { t } = useLang()
   const [unread, setUnread] = useState(0)
   const [chatUnread, setChatUnread] = useState(0)
   const [open, setOpen] = useState(false)
@@ -130,14 +130,6 @@ export default function Navbar() {
           <span className="brand-mark teal">+</span> MedRec
         </Link>
         <span style={{ display: 'inline-flex', marginRight: 4 }}><ThemeToggle /></span>
-        <button
-          onClick={() => setLang(lang === 'hi' ? 'en' : 'hi')}
-          className="nav-ghost-btn"
-          title={lang === 'hi' ? 'Switch to English' : 'हिंदी में देखें'}
-          aria-label="Language"
-        >
-          {lang === 'hi' ? 'EN' : 'हिं'}
-        </button>
         <button className="nav-toggle" aria-label="Menu" onClick={() => setOpen((o) => !o)}>
           {open ? '✕' : '☰'}
         </button>

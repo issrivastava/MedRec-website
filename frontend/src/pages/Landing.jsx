@@ -12,7 +12,7 @@ const FEATURES = [
   { icon: '📈', title: 'Health timeline', text: 'Every report, prescription and visit on one scrollable timeline.' },
   { icon: '⚠️', title: 'Lab alerts', text: 'Abnormal values auto-flagged with a gentle checkup nudge.' },
   { icon: '👪', title: 'Family profiles', text: 'Kids, parents and elders — each with their own records.' },
-  { icon: '🌐', title: '10 languages', text: 'Summaries in English, Hindi, Hinglish, Marathi, Tamil and more.' },
+  { icon: '🌐', title: '8 languages', text: 'Summaries in English, Marathi, Tamil, Telugu and more.' },
   { icon: '💊', title: 'Medicine guide', text: 'Uses, dosage and side effects with Tata 1mg links.' },
   { icon: '🩺', title: 'Illness guide', text: 'Symptoms, causes, treatment and prevention — free.' },
   { icon: '💬', title: 'Ask AI', text: 'Health and app doubts explained in simple words.' },
@@ -62,7 +62,7 @@ export default function Landing() {
             </div>
             <div className="hero-proof">
               <span className="hero-proof-item">✓ No credit card</span>
-              <span className="hero-proof-item">✓ 10 languages</span>
+              <span className="hero-proof-item">✓ 8 languages</span>
               <span className="hero-proof-item">✓ Private by design</span>
             </div>
           </div>
@@ -83,7 +83,7 @@ export default function Landing() {
                 </p>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                   <span className="pill pill-info">🗂️ Auto-organized by visit</span>
-                  <span className="pill pill-info">🌐 10 languages</span>
+                   <span className="pill pill-info">🌐 8 languages</span>
                 </div>
               </div>
               <div className="hero-mock" style={{ marginTop: 10 }}>

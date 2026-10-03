@@ -18,6 +18,35 @@ def _parse(t: str) -> dtime:
     return dtime(h, m)
 
 
+SLOT_MINUTES = 30
+
+
+def _to_minutes(t: dtime) -> int:
+    return t.hour * 60 + t.minute
+
+
+def _to_time(minutes: int) -> dtime:
+    minutes = minutes % (24 * 60)
+    return dtime(minutes // 60, minutes % 60)
+
+
+def _block_for_time(db: Session, doctor_id: str, weekday: int, start: dtime):
+    """Availability block containing `start` (so 30-min chunks inside a
+    longer block all book successfully)."""
+    blocks = db.query(AvailabilitySlot).filter_by(
+        doctor_id=doctor_id, weekday=weekday).all()
+    for s in blocks:
+        if s.start_time <= start < s.end_time:
+            return s
+    return None
+
+
+def _chunk_end(block, start: dtime) -> dtime:
+    """End of the 30-min chunk starting at `start`, capped at the block end."""
+    return _to_time(min(_to_minutes(start) + SLOT_MINUTES,
+                       _to_minutes(block.end_time)))
+
+
 def _slot_out(s: AvailabilitySlot) -> dict:
     return {"id": s.id, "doctor_id": s.doctor_id, "weekday": s.weekday,
             "start_time": s.start_time.strftime("%H:%M"), "end_time": s.end_time.strftime("%H:%M")}
@@ -204,8 +233,7 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
         if not db.query(FamilyMember).filter_by(id=data.family_member_id, owner_id=patient_id).first():
             raise HTTPException(status_code=400, detail="Unknown family member")
     start = _parse(data.start_time)
-    slot = db.query(AvailabilitySlot).filter_by(
-        doctor_id=doctor_id, weekday=data.date.weekday(), start_time=start).first()
+    slot = _block_for_time(db, doctor_id, data.date.weekday(), start)
     if not slot:
         raise HTTPException(status_code=400, detail="Doctor not available at that time")
     clash = db.query(Appointment).filter_by(
@@ -228,7 +256,7 @@ def book(data: AppointmentIn, db: Session = Depends(get_db), user: User = Depend
     except Exception:
         token_no = None
     a = Appointment(doctor_id=doctor_id, patient_id=patient_id, date=data.date,
-                    start_time=start, end_time=slot.end_time, reason=data.reason,
+                    start_time=start, end_time=_chunk_end(slot, start), reason=data.reason,
                     family_member_id=data.family_member_id,
                     consult_type=getattr(data, "consult_type", "in_person") or "in_person")
     db.add(a)
@@ -333,8 +361,7 @@ def reschedule(appt_id: str, date: str, start_time: str,
     if new_date < _date.today():
         raise HTTPException(status_code=400, detail="Cannot reschedule to the past")
     start = _parse(start_time)
-    slot = db.query(AvailabilitySlot).filter_by(
-        doctor_id=a.doctor_id, weekday=new_date.weekday(), start_time=start).first()
+    slot = _block_for_time(db, a.doctor_id, new_date.weekday(), start)
     if not slot:
         raise HTTPException(status_code=400, detail="Doctor not available at that time")
     clash = db.query(Appointment).filter_by(
@@ -350,7 +377,7 @@ def reschedule(appt_id: str, date: str, start_time: str,
     except Exception:
         pass
     old = f"{a.date} {a.start_time.strftime('%H:%M')}"
-    a.date, a.start_time, a.end_time = new_date, start, slot.end_time
+    a.date, a.start_time, a.end_time = new_date, start, _chunk_end(slot, start)
     db.commit()
     notify(db, a.doctor_id, "appointment", f"Rescheduled: {old} -> {new_date} {start_time}",
            None, link="/doctor")

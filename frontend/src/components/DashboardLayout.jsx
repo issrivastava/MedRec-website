@@ -35,6 +35,7 @@ export default function DashboardLayout({ title, subtitle, meta, items, active, 
     <div className={`dash${tone ? ` ${tone}` : ''}`}>
       <aside className="dash-side">
         <div className="dash-side-title">{sideTitle}</div>
+        <nav className="dash-side-scroll" aria-label="Dashboard menu">
         {items.map((it) => {
           const showSection = it.section && it.section !== lastSection
           lastSection = it.section || lastSection
@@ -45,6 +46,7 @@ export default function DashboardLayout({ title, subtitle, meta, items, active, 
             </div>
           )
         })}
+        </nav>
         <div className="dash-side-foot">
           <Link to="/profile" className="dash-nav-item dash-user">
             {pic

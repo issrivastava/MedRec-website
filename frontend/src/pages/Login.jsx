@@ -59,7 +59,7 @@ export default function Login() {
   return (
     <AuthSplit points={[
       'Scan & keep every report and prescription in one place',
-      'Plain-language AI summaries in 10 languages',
+      'Plain-language AI summaries in 8 languages',
       'Your doctor reviews your history in one click',
     ]}>
       <span className="pill pill-info" style={{ marginBottom: 10 }}>Welcome back</span>

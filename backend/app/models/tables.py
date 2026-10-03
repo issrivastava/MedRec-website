@@ -328,6 +328,9 @@ class VisitNote(Base):
     follow_up_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     diagnosis_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)  # ICD-10
     diagnosis_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Vitals snapshot captured while writing the prescription
+    # {age, sex, bp_sys, bp_dia, pulse, spo2, temp_c, weight_kg}
+    vitals: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -817,6 +820,8 @@ class Invoice(Base):
     insurance_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
     insurance_policy_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     insurance_claim_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Referring doctor / source (free text, e.g. "Dr. Mehta, City Hospital").
+    referred_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

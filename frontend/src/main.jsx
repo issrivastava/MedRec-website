@@ -21,9 +21,35 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 
 // PWA: offline-first app shell (API always network-first — see public/sw.js).
-// Skipped on native (Capacitor) shells and insecure contexts.
+// Registered in PROD builds only. In dev the worker would pin localhost to
+// stale cached CSS/JS across reloads, so dev actively unregisters it.
 if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-  })
+  if (import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          // Actively look for a newer worker on every load; when it takes
+          // over, reload once so no client stays stuck on a stale shell.
+          reg.update().catch(() => {})
+          reg.addEventListener('updatefound', () => {
+            const worker = reg.installing
+            worker?.addEventListener('statechange', () => {
+              if (worker.state === 'activated' && navigator.serviceWorker.controller) {
+                window.location.reload()
+              }
+            })
+          })
+        })
+        .catch(() => {})
+    })
+  } else {
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => regs.forEach((r) => r.unregister().catch(() => {})))
+      .catch(() => {})
+    if (window.caches?.keys) {
+      caches.keys()
+        .then((keys) => keys.forEach((k) => caches.delete(k).catch(() => {})))
+        .catch(() => {})
+    }
+  }
 }

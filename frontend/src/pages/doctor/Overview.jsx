@@ -215,8 +215,6 @@ export default function Overview() {
                 <label className="muted">AI language:
                   <select value={lang} onChange={(e) => setLang(e.target.value)}>
                     <option value="en">English</option>
-                    <option value="hi">Hindi</option>
-                    <option value="hinglish">Hinglish</option>
                   </select>
                 </label>
               </div>

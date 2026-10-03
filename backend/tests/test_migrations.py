@@ -19,7 +19,7 @@ def test_baseline_upgrades_stale_sqlite(tmp_path):
 
     with eng.connect() as c:
         version = c.execute(text("select version_num from alembic_version")).scalar()
-    assert version == "0005_bill_categories"
+    assert version == "0007_invoice_referred_by"
     cols = [c["name"] for c in inspect(eng).get_columns("users")]
     for expected in ("avatar_path", "firebase_uid", "phone", "token_version", "health_id",
                      "is_archived", "archived_at"):
@@ -42,3 +42,6 @@ def test_baseline_on_fresh_sqlite(tmp_path):
     cols = [c["name"] for c in inspect(eng).get_columns("invoices")]
     assert "upi_ref" in cols
     assert "category" in cols
+    assert "referred_by" in cols
+    vcols = [c["name"] for c in inspect(eng).get_columns("visit_notes")]
+    assert "vitals" in vcols

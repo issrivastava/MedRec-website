@@ -254,6 +254,18 @@ class MedicineIn(BaseModel):
     duration: str | None = None
 
 
+class VisitVitalsIn(BaseModel):
+    """Vitals snapshot captured while writing an e-prescription / visit note."""
+    age: int | None = Field(default=None, ge=0, le=130)
+    sex: str | None = Field(default=None, max_length=20)
+    bp_sys: int | None = Field(default=None, ge=50, le=300)
+    bp_dia: int | None = Field(default=None, ge=30, le=200)
+    pulse: int | None = Field(default=None, ge=20, le=250)
+    spo2: int | None = Field(default=None, ge=50, le=100)
+    temp_c: float | None = Field(default=None, ge=30, le=45)
+    weight_kg: float | None = Field(default=None, ge=0, le=500)
+
+
 class VisitNoteIn(BaseModel):
     patient_id: str
     family_member_id: str | None = None
@@ -265,6 +277,7 @@ class VisitNoteIn(BaseModel):
     follow_up_date: date | None = None
     diagnosis_code: str | None = Field(default=None, max_length=20)
     diagnosis_name: str | None = Field(default=None, max_length=255)
+    vitals: VisitVitalsIn | None = None
 
 
 class VisitNoteOut(BaseModel):
@@ -281,6 +294,7 @@ class VisitNoteOut(BaseModel):
     follow_up_date: date | None = None
     diagnosis_code: str | None = None
     diagnosis_name: str | None = None
+    vitals: dict | None = None
     created_at: datetime
 
     class Config:
@@ -1005,6 +1019,7 @@ class InvoiceIn(BaseModel):
     insurance_provider: str | None = Field(default=None, max_length=255)
     insurance_policy_no: str | None = Field(default=None, max_length=100)
     insurance_claim_amount: float | None = Field(default=None, ge=0)
+    referred_by: str | None = Field(default=None, max_length=255)
     notes: str | None = None
 
 
@@ -1028,6 +1043,7 @@ class InvoiceOut(BaseModel):
     insurance_provider: str | None = None
     insurance_policy_no: str | None = None
     insurance_claim_amount: float | None = None
+    referred_by: str | None = None
     notes: str | None = None
     issued_at: datetime | None = None
     paid_at: datetime | None = None

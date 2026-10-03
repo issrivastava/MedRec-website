@@ -300,7 +300,7 @@ input:focus, select:focus, textarea:focus {
 .app-main:has(.dash) { max-width: 1440px; }
 .dash { display: flex; align-items: flex-start; width: 100%; max-width: 1400px; margin: 16px auto 0; min-height: calc(100vh - 170px); gap: 18px; padding: 0 clamp(12px, 2.5vw, 24px); }
 .dash-side {
-  width: 258px; flex-shrink: 0; align-self: flex-start;
+  width: 258px; flex-shrink: 0;
   background: linear-gradient(180deg, #ffffff 0%, #f4faf9 100%);
   color: var(--ink);
   padding: 12px 10px;
@@ -308,16 +308,26 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: var(--shadow);
-  /* Pinned menu: stays on screen while the content column scrolls.
-     Fixed viewport height + own scroll (not fit-content) so sticky never
-     releases, and the footer stays pinned at the bottom. */
-  position: sticky; top: 76px;
+  /* Fixed menu: locked to the viewport, never scrolls with the page.
+     Anchored under the sticky navbar; aligned to the centered container's
+     left edge. Content column is offset (see .dash-main) so nothing hides
+     underneath. Only the middle nav scrolls (scrollbars hidden so no bar
+     overlaps the rounded edge); header + footer stay pinned. */
+  position: fixed; top: 76px; z-index: 40;
+  left: max(12px, calc((100vw - 1400px) / 2 + 24px));
   height: calc(100vh - 96px); max-height: calc(100vh - 96px);
-  overflow-y: auto; overflow-x: hidden;
-  scrollbar-width: thin; scrollbar-color: #d3dbe4 transparent;
+  overflow: hidden;
 }
-.dash-side::-webkit-scrollbar { width: 6px; }
-.dash-side::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 999px; }
+/* Middle menu list: the only scrollable part of the sidebar.
+   Scrollbars hidden — wheel / touch / keyboard scrolling still works. */
+.dash-side-scroll {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none; -ms-overflow-style: none;
+  padding-bottom: 4px;
+}
+.dash-side-scroll::-webkit-scrollbar { display: none; width: 0; }
 .dash-side-title { font-size: 11px; letter-spacing: 0.12em; color: var(--faint); font-weight: 750; padding: 10px 12px 6px; }
 .dash-side-section { font-size: 11px; letter-spacing: 0.12em; color: var(--faint); font-weight: 750; padding: 12px 12px 4px; }
 .dash-nav-item {
@@ -365,8 +375,16 @@ input:focus, select:focus, textarea:focus {
 .dash-more { margin-top: 2px; }
 .dash-more summary { list-style: none; cursor: pointer; }
 .dash-more summary::-webkit-details-marker { display: none; }
-/* Fluid content column: never overflows the viewport, children can shrink. */
-.dash-main { flex: 1; min-width: 0; width: 100%; padding: 0 0 30px; display: flex; flex-direction: column; gap: 14px; }
+/* Fluid content column: never overflows the viewport, children can shrink.
+   Offset by the fixed sidebar width + gap so nothing slides underneath it. */
+.dash-main { flex: 1; min-width: 0; width: 100%; margin-left: 276px; padding: 0 0 30px; display: flex; flex-direction: column; gap: 14px; }
+/* The sidebar is viewport-fixed, so on dashboard pages the footer gets the
+   same left offset as the content column — it slides beside the menu,
+   never underneath it. Mobile/tablet use the in-flow bar: no offset. */
+@media (min-width: 1101px) {
+  .app-shell:has(.dash) .footer-inner,
+  .app-shell:has(.dash) .footer-bottom { padding-left: calc(276px + clamp(12px, 2.5vw, 24px)); }
+}
 .dash-main > * { min-width: 0; }
 .dash-main .card:last-child { margin-bottom: 0; }
 .dash-top {
@@ -444,15 +462,26 @@ input:focus, select:focus, textarea:focus {
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cols-2 { grid-template-columns: minmax(0, 1fr); }
   .dash { flex-direction: column; gap: 14px; }
-  /* Mobile/tablet: horizontal menu bar pinned under the navbar — never scrolls away. */
+  /* Mobile/tablet: sidebar becomes a horizontal bar that sticks under the
+     navbar while scrolling (fixed would cover content on small screens). */
   .dash-side {
-    width: 100%; align-self: stretch;
+    width: 100%;
+    left: auto; top: 64px;
     flex-direction: row; flex-wrap: nowrap; align-items: center;
-    overflow-x: auto; overflow-y: hidden;
+    overflow: hidden;
     padding: 8px; gap: 4px;
-    position: sticky; top: 64px; z-index: 30;
+    position: sticky; z-index: 30;
     height: auto; max-height: none;
   }
+  /* Horizontal menu strip scrolls inside the bar — no visible scrollbar. */
+  .dash-side-scroll {
+    flex-direction: row; flex-wrap: nowrap; align-items: center;
+    overflow-x: auto; overflow-y: hidden;
+    gap: 4px; padding-bottom: 0;
+  }
+  .dash-side-scroll > * { flex-shrink: 0; }
+  .dash-side-section { display: none; }
+  .dash-main { margin-left: 0; }
   .dash-side-title { display: none; }
   .dash-side-foot { flex-direction: row; margin-top: 0; padding-top: 0; border-top: 0; margin-left: auto; flex-shrink: 0; }
   .dash-nav-item { width: auto; white-space: nowrap; flex-shrink: 0; }
@@ -966,6 +995,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 /* ---------- Print: bills print cleanly (Ctrl+P fallback) ---------- */
 @media print {
+  .dash-side { display: none !important; }
+  .dash-main { margin-left: 0 !important; }
   body * { visibility: hidden; }
   .billing-page, .billing-page * { visibility: visible; }
   .billing-page { position: absolute; left: 0; top: 0; width: 100%; max-width: 100%; padding: 0; margin: 0; }

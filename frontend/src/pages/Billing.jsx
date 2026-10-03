@@ -83,8 +83,11 @@ export default function Billing() {
   const [patient, setPatient] = useState(null) // filter picker value
   const [status, setStatus] = useState('')
   const [category, setCategory] = useState('')
-  const [form, setForm] = useState({ patient_id: '', category: 'consultation', amount: '', payment_mode: 'upi', notes: '', insurance_provider: '', insurance_policy_no: '' })
+  const [form, setForm] = useState({ patient_id: '', category: 'consultation', amount: '', payment_mode: 'upi', notes: '', insurance_provider: '', insurance_policy_no: '', referred_by: '' })
   const [formPatient, setFormPatient] = useState(null) // create-form picker value
+  const [items, setItems] = useState([]) // line items: [{label, qty, rate}]
+  const [newItem, setNewItem] = useState({ label: '', qty: 1, rate: '' })
+  const itemsTotal = items.reduce((t, it) => t + (Number(it.qty) || 0) * (Number(it.rate) || 0), 0)
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
   const [upi, setUpi] = useState(null)
@@ -126,17 +129,22 @@ export default function Billing() {
     const pid = formPatient ? formPatient.id : form.patient_id
     if (!pid) { setErr('Pick a patient first — type their name above.'); return }
     try {
+      const computed = items.length ? Math.round(itemsTotal * 100) / 100 : (parseFloat(form.amount) || 0)
       const { data: inv } = await api.post('/api/billing/invoices', {
         patient_id: pid,
         category: form.category || 'consultation',
-        amount: parseFloat(form.amount) || 0,
+        items: items.length ? items.map((it) => ({ label: it.label, qty: Number(it.qty) || 1, rate: Number(it.rate) || 0 })) : undefined,
+        amount: computed,
         payment_mode: form.payment_mode || undefined,
         notes: form.notes || undefined,
         insurance_provider: form.insurance_provider || undefined,
         insurance_policy_no: form.insurance_policy_no || undefined,
+        referred_by: form.referred_by || undefined,
       })
-      setForm({ patient_id: '', category: 'consultation', amount: '', payment_mode: 'upi', notes: '', insurance_provider: '', insurance_policy_no: '' })
+      setForm({ patient_id: '', category: 'consultation', amount: '', payment_mode: 'upi', notes: '', insurance_provider: '', insurance_policy_no: '', referred_by: '' })
       setFormPatient(null)
+      setItems([])
+      setNewItem({ label: '', qty: 1, rate: '' })
       await load(patient?.id, status, category)
       try {
         await printReceipt(inv)
@@ -189,13 +197,11 @@ export default function Billing() {
       {err && <div className="callout-err" role="alert">{err}</div>}
       {ok && <div className="callout-ok">{ok}</div>}
 
-      {upi?.configured ? (
+      {upi?.configured && (
         <div className="callout">
           <b>📱 Pay by UPI:</b> send the exact amount to <b>{upi.vpa}</b> from any UPI app,
           then paste the UTR / reference number on your invoice below. The front desk verifies and marks it paid.
         </div>
-      ) : (
-        <div className="callout-warn">UPI payments are not configured by the clinic yet — pay at the desk.</div>
       )}
 
       {summary && (
@@ -229,19 +235,63 @@ export default function Billing() {
           <div style={{ marginBottom: 10 }}>
             <PatientPicker value={formPatient} onPick={(p) => setFormPatient(p)} placeholder="Type patient name… *" />
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} title="Bill type">
-              {BILL_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-            <input required placeholder="Amount Rs." type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-            <select value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })} title="Expected payment mode">
-              {['cash', 'card', 'upi', 'netbanking', 'insurance', 'other'].map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <input placeholder="Insurance provider" value={form.insurance_provider} onChange={(e) => setForm({ ...form, insurance_provider: e.target.value })} />
-            <input placeholder="Policy no." value={form.insurance_policy_no} onChange={(e) => setForm({ ...form, insurance_policy_no: e.target.value })} />
-            <input placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-            <button type="submit" className="btn-teal">Create &amp; print</button>
+          <div style={s.grid}>
+            <label style={s.label}>Bill type
+              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} title="Bill type" style={s.input}>
+                {BILL_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </label>
+            <label style={s.label}>Total amount (Rs.)
+              <input
+                required={items.length === 0}
+                placeholder={items.length ? `Auto: Rs.${itemsTotal.toFixed(2)}` : 'Amount Rs.'}
+                type="number" min="0" step="0.01" value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                disabled={items.length > 0} title={items.length ? 'Total is calculated from the line items below' : 'Amount Rs.'}
+                style={s.input} />
+            </label>
+            <label style={s.label}>Expected mode
+              <select value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })} title="Expected payment mode" style={s.input}>
+                {['cash', 'card', 'upi', 'netbanking', 'insurance', 'other'].map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+            <label style={s.label}>Referred by
+              <input placeholder="e.g. Dr. Mehta, City Hospital" value={form.referred_by} onChange={(e) => setForm({ ...form, referred_by: e.target.value })} style={s.input} />
+            </label>
+            <label style={s.label}>Insurance provider
+              <input placeholder="Insurance provider" value={form.insurance_provider} onChange={(e) => setForm({ ...form, insurance_provider: e.target.value })} style={s.input} />
+            </label>
+            <label style={s.label}>Policy no.
+              <input placeholder="Policy no." value={form.insurance_policy_no} onChange={(e) => setForm({ ...form, insurance_policy_no: e.target.value })} style={s.input} />
+            </label>
           </div>
+          <div style={{ marginTop: 10 }}>
+            <b style={{ fontSize: 13.5 }}>🧾 Line items {items.length ? `(total Rs.${itemsTotal.toFixed(2)})` : '(optional — adds a breakdown to the receipt)'}</b>
+            {!!items.length && (
+              <div style={{ marginTop: 6 }}>
+                {items.map((it, i) => (
+                  <div key={i} style={s.itemRow}>
+                    <span style={{ flex: 1, minWidth: 0 }}><b>{it.label}</b> <small style={s.muted}>× {it.qty} @ Rs.{Number(it.rate).toFixed(2)} = Rs.{(it.qty * it.rate).toFixed(2)}</small></span>
+                    <button type="button" onClick={() => setItems((xs) => xs.filter((_, j) => j !== i))} style={s.linkBtn}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={s.itemForm}>
+              <input placeholder="Item e.g. MRI Brain" value={newItem.label} onChange={(e) => setNewItem({ ...newItem, label: e.target.value })} style={{ ...s.input, flex: '2 1 160px' }} aria-label="Item name" />
+              <input placeholder="Qty" type="number" min="1" value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} style={{ ...s.input, flex: '1 1 70px' }} aria-label="Quantity" />
+              <input placeholder="Rate Rs." type="number" min="0" step="0.01" value={newItem.rate} onChange={(e) => setNewItem({ ...newItem, rate: e.target.value })} style={{ ...s.input, flex: '1 1 100px' }} aria-label="Rate" />
+              <button type="button" onClick={() => {
+                if (!newItem.label.trim()) return
+                setItems((xs) => [...xs, { label: newItem.label.trim(), qty: Number(newItem.qty) || 1, rate: Number(newItem.rate) || 0 }])
+                setNewItem({ label: '', qty: 1, rate: '' })
+              }}>＋ Add</button>
+            </div>
+          </div>
+          <label style={{ ...s.label, marginTop: 10 }}>Notes
+            <input placeholder="Notes (visit, discount, instructions…)" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={s.input} />
+          </label>
+          <div style={{ marginTop: 10 }}><button type="submit" className="btn-teal">Create &amp; print</button></div>
         </form>
       )}
 
@@ -253,7 +303,21 @@ export default function Billing() {
               <span className="pill pill-info">{catLabel(inv.category)}</span>
               <span className={`pill ${statusPill(inv.status)}`}>{inv.status.replace('_', ' ')}</span>
             </div>
-            <div className="bill-meta">{inv.patient_name || 'Patient'} · {inv.created_at.slice(0, 10)}{inv.insurance_provider ? ` · 🛡 ${inv.insurance_provider}` : ''}{inv.upi_ref ? ` · UPI ref ${inv.upi_ref}` : ''}</div>
+            <div className="bill-meta">
+              {inv.patient_name || 'Patient'}{inv.doctor_name ? ` · Dr. ${inv.doctor_name}` : ''} · {inv.created_at.slice(0, 10)}
+              {inv.payment_mode ? ` · ${inv.payment_mode}` : ''}
+              {inv.insurance_provider ? ` · 🛡 ${inv.insurance_provider}${inv.insurance_policy_no ? ` (${inv.insurance_policy_no})` : ''}` : ''}
+              {inv.upi_ref ? ` · UPI ref ${inv.upi_ref}` : ''}
+            </div>
+            {inv.referred_by && <div className="bill-meta">↩️ Referred by: <b>{inv.referred_by}</b></div>}
+            {!!(inv.items || []).length && (
+              <div className="bill-meta">
+                {(inv.items || []).map((it, i) => (
+                  <span key={i} className="pill" style={{ marginRight: 4 }}>{it.label} × {it.qty} @ Rs.{it.rate}</span>
+                ))}
+              </div>
+            )}
+            {inv.notes && <div className="bill-meta">📝 {inv.notes}</div>}
             <div className="bill-amounts">
               <span>Total <b>{inr(inv.amount)}</b></span>
               <span>Paid <b>{inr(inv.paid_amount)}</b></span>
@@ -286,6 +350,12 @@ export default function Billing() {
 const s = {
   wrap: { maxWidth: 900, margin: '0 auto', padding: 16 },
   linkBtn: { background: 'none', border: 0, color: '#0d9488', cursor: 'pointer', padding: 0, fontWeight: 700 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(200px,100%),1fr))', gap: 8, minWidth: 0 },
+  label: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, fontWeight: 700, minWidth: 0 },
+  input: { padding: '10px 12px', fontSize: 14, minWidth: 0, maxWidth: '100%', width: '100%', boxSizing: 'border-box' },
+  muted: { color: '#5d6b7a' },
+  itemRow: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', border: '1px solid #e9edf2', borderRadius: 10, padding: '6px 10px', marginBottom: 6, background: '#fbfcfd', fontSize: 13.5 },
+  itemForm: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 },
   drop: { position: 'absolute', top: '100%', left: 0, zIndex: 20, background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, minWidth: 260, maxHeight: 220, overflowY: 'auto', boxShadow: '0 4px 14px rgba(0,0,0,.12)' },
   dropItem: { display: 'block', width: '100%', textAlign: 'left', background: '#fff', border: 0, borderBottom: '1px solid #eee', padding: '8px 10px', cursor: 'pointer' },
 }

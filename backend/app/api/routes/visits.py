@@ -24,6 +24,7 @@ def _out_with_map(v: VisitNote, doctors: dict) -> dict:
     d["family_member_id"] = getattr(v, "family_member_id", None)
     d["diagnosis_code"] = getattr(v, "diagnosis_code", None)
     d["diagnosis_name"] = getattr(v, "diagnosis_name", None)
+    d["vitals"] = getattr(v, "vitals", None)
     d["doctor_name"] = doc.full_name if doc else None
     return d
 
@@ -43,6 +44,7 @@ def create_note(data: VisitNoteIn, db: Session = Depends(get_db), user: User = D
         visit_date=data.visit_date, follow_up_date=data.follow_up_date,
         family_member_id=data.family_member_id,
         diagnosis_code=data.diagnosis_code, diagnosis_name=data.diagnosis_name,
+        vitals=data.vitals.model_dump(exclude_none=True) if data.vitals else None,
     )
     db.add(v)
     db.commit()
@@ -169,12 +171,15 @@ def request_refill(note_id: str, db: Session = Depends(get_db),
 
 @router.get("/{note_id}/rx-pdf")
 def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """E-prescription PDF with doctor letterhead + signature block.
+    """Detailed e-prescription PDF: letterhead, patient demographics + vitals,
+    diagnosis, advice, medicines table, follow-up, signature block.
 
     Patients download own; assigned doctor downloads. Signature name comes from
     the doctor's latest RxTemplate.signature_name or their full name."""
+    from datetime import datetime as _dt
     from fastapi.responses import Response
     from io import BytesIO
+    from xml.sax.saxutils import escape as _xe
     v = db.query(VisitNote).filter_by(id=note_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Not found")
@@ -184,40 +189,153 @@ def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get
         raise HTTPException(status_code=403, detail="Not yours")
     doc = db.query(User).filter_by(id=v.doctor_id).first()
     pat = db.query(User).filter_by(id=v.patient_id).first()
+    pprof = getattr(pat, "patient_profile", None) if pat else None
+    dprof = getattr(doc, "doctor_profile", None) if doc else None
     from app.models.tables import RxTemplate
     tpl = db.query(RxTemplate).filter_by(doctor_id=v.doctor_id).order_by(RxTemplate.created_at.desc()).first()
     sig = (tpl.signature_name if tpl and tpl.signature_name else (doc.full_name if doc else "Doctor"))
-    spec = ""
-    try:
-        if doc and doc.doctor_profile:
-            spec = f"{doc.doctor_profile.specialization or ''} {doc.doctor_profile.license_no or ''}".strip()
-    except Exception:
-        pass
+
+    # ---- Doctor letterhead ----
+    d_credentials = " · ".join(x for x in [
+        getattr(dprof, "qualification", None),
+        getattr(dprof, "specialization", None)] if x)
+    d_addr = " ".join(x for x in [
+        getattr(dprof, "hospital", None),
+        getattr(dprof, "clinic_address", None)] if x)
+    d_phone = getattr(dprof, "phone", None) or (doc.phone if doc else None)
+    d_reg = (getattr(dprof, "license_no", None)
+             or getattr(dprof, "registration_council", None))
+
+    # ---- Patient demographics: vitals snapshot first, profile as fallback ----
+    vit = dict(getattr(v, "vitals", None) or {})
+    age = vit.get("age")
+    if age in (None, ""):
+        try:
+            dob = getattr(pprof, "dob", None)
+            if dob:
+                today = _dt.utcnow().date()
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        except Exception:
+            pass
+    sex = vit.get("sex") or getattr(pprof, "gender", None)
+    p_phone = getattr(pprof, "phone", None) or (pat.phone if pat else None)
+    p_addr = getattr(pprof, "address", None)
+    p_hid = pat.health_id if pat else None
+    visit_dt = v.visit_date or v.created_at.date()
+
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
     from reportlab.lib.units import mm
+    from reportlab.lib import colors
     buf = BytesIO()
     pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
     styles = getSampleStyleSheet()
+    small = styles["Normal"].__class__("rx-small", parent=styles["Normal"])
+    small.fontSize = 9
+    small.leading = 12
+    right_small = styles["Normal"].__class__("rx-right", parent=small)
+    right_small.alignment = 2  # right
+    TEAL = colors.HexColor("#0e9384")
+
     story = [
-        Paragraph(f"<b>Dr. {doc.full_name if doc else ''}</b>{(' — ' + spec) if spec else ''}", styles["Title"]),
-        Paragraph("E-Prescription · MedRec", styles["Normal"]),
-        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
-        Paragraph(f"Patient: <b>{pat.full_name if pat else ''}</b> · Date: {v.visit_date or v.created_at.date()}", styles["Normal"]),
-        Paragraph(f"Title: {v.title or '(prescription)'}", styles["Normal"]), Spacer(1, 6),
-        Paragraph((v.content or "").replace(chr(10), "<br/>"), styles["Normal"]), Spacer(1, 6),
+        Paragraph(f"<b>Dr. {_xe(doc.full_name) if doc else 'Doctor'}</b>"
+                  f"{(' — ' + _xe(d_addr)) if d_addr else ''}", styles["Title"]),
     ]
-    for m in v.medicines or []:
-        story.append(Paragraph(
-            f"• <b>{m.get('name')}</b> — {m.get('dosage') or ''} {m.get('frequency') or ''} x {m.get('duration') or ''}",
-            styles["Normal"]))
-    story += [Spacer(1, 12), HRFlowable(width="40%", thickness=1, hAlign="RIGHT"),
-              Paragraph(f"<para alignment=right>Signature: <b>{sig}</b><br/>Date: {v.visit_date or v.created_at.date()}</para>",
-                        styles["Normal"]),
-              Spacer(1, 6),
-              Paragraph("<i>Computer-generated via MedRec. Follow your doctor's advice; do not self-medicate.</i>",
-                        styles["Italic"])]
+    doc_sub = " · ".join(x for x in [
+        d_credentials or "", f"Reg: {d_reg}" if d_reg else "",
+        f"Ph: {d_phone}" if d_phone else ""] if x)
+    if doc_sub:
+        story.append(Paragraph(f"<font color=\"#475569\">{_xe(doc_sub)}</font>", small))
+    story += [Spacer(1, 4),
+              Paragraph("<b><font color=\"#0e9384\" size=\"13\">E-PRESCRIPTION</font></b>", styles["Normal"]),
+              HRFlowable(width="100%", thickness=1), Spacer(1, 6)]
+
+    # ---- Patient + visit details ----
+    pat_lines = [f"<b>PATIENT</b>", f"<b>{_xe(pat.full_name) if pat else '—'}</b>"]
+    demo = " · ".join(x for x in [
+        f"Age: {age}" if age not in (None, "") else "",
+        f"Sex: {sex}" if sex else "",
+        f"Health ID: {p_hid}" if p_hid else ""] if x)
+    if demo:
+        pat_lines.append(_xe(demo))
+    if pat and pat.email:
+        pat_lines.append(f"Email: {_xe(pat.email)}")
+    if p_phone:
+        pat_lines.append(f"Phone: {_xe(p_phone)}")
+    if p_addr:
+        pat_lines.append(f"Address: {_xe(p_addr)}")
+    visit_lines = [f"<b>VISIT DETAILS</b>", f"Date: {visit_dt}"]
+    if v.title:
+        visit_lines.append(f"Title: {_xe(v.title)}")
+    if v.diagnosis_code or v.diagnosis_name:
+        visit_lines.append("Diagnosis: " + _xe(" ".join(
+            x for x in [v.diagnosis_code or "", ("— " + v.diagnosis_name) if v.diagnosis_name else ""] if x)))
+    if v.follow_up_date:
+        visit_lines.append(f"<b>Follow-up: {v.follow_up_date}</b>")
+    info_tbl = Table([[Paragraph("<br/>".join(pat_lines), small),
+                       Paragraph("<br/>".join(visit_lines), small)]],
+                     colWidths=[100 * mm, 80 * mm])
+    info_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("INNERPADDING", (0, 0), (-1, -1), 6),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story += [info_tbl, Spacer(1, 8)]
+
+    # ---- Vitals at prescription time ----
+    vit_items = []
+    if vit.get("bp_sys") or vit.get("bp_dia"):
+        vit_items.append(f"BP: {vit.get('bp_sys') or '—'}/{vit.get('bp_dia') or '—'} mmHg")
+    if vit.get("pulse") not in (None, ""):
+        vit_items.append(f"Pulse: {vit.get('pulse')} /min")
+    if vit.get("spo2") not in (None, ""):
+        vit_items.append(f"SpO2: {vit.get('spo2')}%")
+    if vit.get("temp_c") not in (None, ""):
+        vit_items.append(f"Temp: {vit.get('temp_c')} °C")
+    if vit.get("weight_kg") not in (None, ""):
+        vit_items.append(f"Weight: {vit.get('weight_kg')} kg")
+    if vit_items:
+        story.append(Paragraph("<b>Vitals:</b> " + _xe(" · ".join(vit_items)), small))
+        story.append(Spacer(1, 6))
+
+    # ---- Advice / findings ----
+    story.append(Paragraph("<b>Advice / Findings</b>", styles["Normal"]))
+    story.append(Paragraph((_xe(v.content or "—")).replace(chr(10), "<br/>"), styles["Normal"]))
+    story.append(Spacer(1, 8))
+
+    # ---- Medicines table ----
+    meds = list(v.medicines or [])
+    if meds:
+        story.append(Paragraph("<b>Medicines</b>", styles["Normal"]))
+        mrows = [["#", "Medicine", "Dosage", "Frequency", "Duration"]]
+        for i, m in enumerate(meds, 1):
+            mrows.append([str(i), _xe(str(m.get("name", ""))),
+                          _xe(str(m.get("dosage") or "—")),
+                          _xe(str(m.get("frequency") or "—")),
+                          _xe(str(m.get("duration") or "—"))])
+        mtbl = Table(mrows, colWidths=[10 * mm, 70 * mm, 35 * mm, 35 * mm, 30 * mm])
+        mtbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), TEAL),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+             [colors.white, colors.HexColor("#f8fafc")]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story += [mtbl, Spacer(1, 8)]
+
+    generated = _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    story += [Spacer(1, 12),
+              Table([[Paragraph(
+                  f"<i>Computer-generated via MedRec · {generated}</i><br/>"
+                  f"<i>Follow your doctor's advice; do not self-medicate.</i>",
+                  small),
+                  Paragraph(f"Signature: <b>{_xe(sig)}</b><br/>Date: {visit_dt}",
+                            right_small)]],
+                  colWidths=[110 * mm, 50 * mm])]
     pdf.build(story)
     return Response(content=buf.getvalue(), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="rx-{note_id[:8]}.pdf"'})

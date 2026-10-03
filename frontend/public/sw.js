@@ -2,7 +2,7 @@
    Static assets (JS/CSS/icon) work offline after first visit; API calls
    always hit the network so records are never stale. Versioned cache —
    bump V to force-refresh clients. */
-const V = 'medrec-v1';
+const V = 'medrec-v2';
 const SHELL = ['/', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
@@ -24,6 +24,18 @@ self.addEventListener('fetch', (e) => {
   // API + auth: never cache.
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/avatars/')) return;
   if (e.request.method !== 'GET') return;
+  // Navigations (index.html): network-first so new deploys reach users
+  // instead of serving a stale cached shell forever.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        const copy = res.clone();
+        caches.open(V).then((c) => c.put(e.request, copy)).catch(() => {});
+        return res;
+      }).catch(() => caches.match(e.request).then((hit) => hit || caches.match('/')))
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(
       (hit) => hit || fetch(e.request).then((res) => {

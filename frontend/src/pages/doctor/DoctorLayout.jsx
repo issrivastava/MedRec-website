@@ -55,6 +55,7 @@ function Shell() {
     <div className="dash dash-doctor">
       <aside className="dash-side">
         <div className="dash-side-title">DOCTOR · PRACTICE</div>
+        <nav className="dash-side-scroll" aria-label="Doctor menu">
         {core.map((it) => (
           <NavLink
             key={it.key}
@@ -82,6 +83,7 @@ function Shell() {
             </NavLink>
           ))}
         </details>
+        </nav>
         <div className="dash-side-foot">
           <NavLink to="/doctor/profile" className="dash-nav-item">
             {pic
