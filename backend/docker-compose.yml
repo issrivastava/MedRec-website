@@ -1,0 +1,3 @@
+  backend:
+    image: issrivastava/medrec-backend:1.0
+    

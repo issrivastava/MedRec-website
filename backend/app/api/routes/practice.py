@@ -283,26 +283,61 @@ def certificate_pdf(cert_id: str, db: Session = Depends(get_db),
         spec = f"{prof.specialization or ''} {prof.license_no or ''}".strip() if prof else ""
     except Exception:
         spec = ""
-    from reportlab.lib.pagesizes import A4
+    from xml.sax.saxutils import escape as _xe
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
     from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from app.services.clinic_branding import build_branded_pdf
+    from app.services.pdf_widgets import (
+        title_band, section_head, info_pill, digi_stamp_paragraph,
+    )
     buf = BytesIO()
-    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
     styles = getSampleStyleSheet()
+    note_style = styles["Normal"].__class__("cert-note", parent=styles["Normal"])
+    note_style.fontSize = 8.5
+    note_style.leading = 11.5
+    note_style.textColor = colors.HexColor("#64748b")
+    body_style = styles["Normal"].__class__("cert-body", parent=styles["Normal"])
+    body_style.fontSize = 10
+    body_style.leading = 14
+    body_style.textColor = colors.HexColor("#1e293b")
+    right_style = styles["Normal"].__class__("cert-right", parent=body_style)
+    right_style.alignment = 2  # right
+    header_title = f"Dr. {doc.full_name}" if doc and doc.full_name else "MedRec Clinic"
     story = [
-        Paragraph(f"<b>Dr. {doc.full_name if doc else ''}</b>{(' — ' + spec) if spec else ''}", styles["Title"]),
-        Paragraph(f"Medical Certificate ({r.cert_type}) · MedRec", styles["Normal"]),
-        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
-        Paragraph(f"Patient: <b>{pat.full_name if pat else ''}</b>", styles["Normal"]),
-        Paragraph(f"Title: {r.title or r.cert_type}", styles["Normal"]),
-        Paragraph(f"Valid: {r.valid_from or '—'} to {r.valid_until or '—'}", styles["Normal"]),
+        title_band("MEDICAL CERTIFICATE",
+                   _xe(str(r.cert_type or "").upper() or "CERTIFICATE")),
         Spacer(1, 6),
-        Paragraph((r.content or "").replace("\n", "<br/>"), styles["Normal"]),
-        Spacer(1, 12), HRFlowable(width="40%", thickness=1, hAlign="RIGHT"),
-        Paragraph(f"<para alignment=right>Signature: <b>Dr. {doc.full_name if doc else ''}</b><br/>Date: {r.created_at.date()}</para>", styles["Normal"]),
+        info_pill(f"This is to certify that <b>{_xe(pat.full_name) if pat else '—'}</b>"
+                  + (f" — {_xe(r.title)}" if r.title else "")),
+        Spacer(1, 4),
+        info_pill(f"<b>Valid:</b> {r.valid_from or '—'}  to  {r.valid_until or '—'}",
+                  bg="#f0fdf4", border="#86efac"),
+        Spacer(1, 6),
+        section_head("Certificate"),
+        Spacer(1, 4),
+        Paragraph((_xe(r.content or "—")).replace(chr(10), "<br/>"), body_style),
+        Spacer(1, 12),
     ]
-    pdf.build(story)
+    sign_tbl = Table(
+        [[Paragraph(
+            f"<i>Computer-generated via MedRec · {r.created_at.date()}</i>",
+            note_style),
+          Paragraph(f"Signature: <b>Dr. {_xe(doc.full_name) if doc else ''}</b>"
+                    f"<br/>Date: {r.created_at.date()}",
+                    right_style)]],
+        colWidths=[100 * mm, 60 * mm])
+    sign_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEABOVE", (1, 0), (1, 0), 0.7, colors.HexColor("#94a3b8")),
+        ("TOPPADDING", (1, 0), (1, 0), 6),
+    ]))
+    story += [sign_tbl, Spacer(1, 4),
+              digi_stamp_paragraph(
+                  f"Dr. {doc.full_name}" if doc else "Doctor",
+                  r.created_at.strftime("%Y-%m-%d %H:%M UTC"))]
+    build_branded_pdf(buf, story, header_title, spec)
     _audit(db, user.id, "certificate_pdf", r.patient_id, r.cert_type)
     return Response(content=buf.getvalue(), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="cert-{cert_id[:8]}.pdf"'})

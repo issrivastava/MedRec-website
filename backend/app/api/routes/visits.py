@@ -169,31 +169,41 @@ def request_refill(note_id: str, db: Session = Depends(get_db),
     return {"ok": True, "doctor": doc.full_name if doc else None}
 
 
-@router.get("/{note_id}/rx-pdf")
-def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Detailed e-prescription PDF: letterhead, patient demographics + vitals,
-    diagnosis, advice, medicines table, follow-up, signature block.
+def _rx_styles():
+    """Shared reportlab paragraph styles for prescription PDFs."""
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from types import SimpleNamespace
+    styles = getSampleStyleSheet()
+    small = styles["Normal"].__class__("rx-small", parent=styles["Normal"])
+    small.fontSize = 9
+    small.leading = 12
+    small.textColor = colors.HexColor("#334155")
+    note_style = styles["Normal"].__class__("rx-note", parent=styles["Normal"])
+    note_style.fontSize = 8.5
+    note_style.leading = 11.5
+    note_style.textColor = colors.HexColor("#64748b")
+    right_small = styles["Normal"].__class__("rx-right", parent=small)
+    right_small.alignment = 2  # right
+    return SimpleNamespace(small=small, note_style=note_style,
+                           right_small=right_small)
 
-    Patients download own; assigned doctor downloads. Signature name comes from
-    the doctor's latest RxTemplate.signature_name or their full name."""
+
+def _rx_facts(db: Session, v: VisitNote) -> dict:
+    """Doctor / patient / signature / demographic facts for one note."""
     from datetime import datetime as _dt
-    from fastapi.responses import Response
-    from io import BytesIO
-    from xml.sax.saxutils import escape as _xe
-    v = db.query(VisitNote).filter_by(id=note_id).first()
-    if not v:
-        raise HTTPException(status_code=404, detail="Not found")
-    if user.role == "patient" and v.patient_id != user.id:
-        raise HTTPException(status_code=403, detail="Not yours")
-    if user.role == "doctor" and v.doctor_id != user.id and not is_assigned(db, user.id, v.patient_id):
-        raise HTTPException(status_code=403, detail="Not yours")
     doc = db.query(User).filter_by(id=v.doctor_id).first()
     pat = db.query(User).filter_by(id=v.patient_id).first()
     pprof = getattr(pat, "patient_profile", None) if pat else None
     dprof = getattr(doc, "doctor_profile", None) if doc else None
-    from app.models.tables import RxTemplate
-    tpl = db.query(RxTemplate).filter_by(doctor_id=v.doctor_id).order_by(RxTemplate.created_at.desc()).first()
-    sig = (tpl.signature_name if tpl and tpl.signature_name else (doc.full_name if doc else "Doctor"))
+    try:
+        from app.models.tables import RxTemplate
+        tpl = db.query(RxTemplate).filter_by(doctor_id=v.doctor_id)\
+            .order_by(RxTemplate.created_at.desc()).first()
+    except Exception:
+        tpl = None
+    sig = (tpl.signature_name if tpl and tpl.signature_name
+           else (doc.full_name if doc else "Doctor"))
 
     # ---- Doctor letterhead ----
     d_credentials = " · ".join(x for x in [
@@ -217,125 +227,328 @@ def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get
                 age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         except Exception:
             pass
-    sex = vit.get("sex") or getattr(pprof, "gender", None)
-    p_phone = getattr(pprof, "phone", None) or (pat.phone if pat else None)
-    p_addr = getattr(pprof, "address", None)
-    p_hid = pat.health_id if pat else None
-    visit_dt = v.visit_date or v.created_at.date()
+    # ---- Clinical history written by the patient (only filled rows) ----
+    history: list[tuple[str, str]] = []
+    if pprof is not None:
+        def _measure(value, unit: str) -> str:
+            if value in (None, ""):
+                return ""
+            try:
+                return f"{float(value):g} {unit}"
+            except (TypeError, ValueError):
+                return str(value).strip()
+        hw = " · ".join(x for x in [
+            _measure(getattr(pprof, "height_cm", None), "cm"),
+            _measure(getattr(pprof, "weight_kg", None), "kg")] if x)
+        background = " · ".join(x for x in [
+            str(getattr(pprof, "marital_status", None) or ""),
+            str(getattr(pprof, "occupation", None) or "")] if x.strip())
+        habits = " · ".join(x for x in [
+            (f"Smoking: {getattr(pprof, 'smoking_status', None)}"
+             if getattr(pprof, "smoking_status", None) else ""),
+            (f"Alcohol: {getattr(pprof, 'alcohol_use', None)}"
+             if getattr(pprof, "alcohol_use", None) else ""),
+            str(getattr(pprof, "diet", None) or ""),
+            (f"Activity: {getattr(pprof, 'activity_level', None)}"
+             if getattr(pprof, "activity_level", None) else "")] if x.strip())
+        for label, value in [
+            ("Height / weight", hw),
+            ("Background", background),
+            ("Habits", habits),
+            ("Past illnesses", str(getattr(pprof, "past_illnesses", None) or "")),
+            ("Surgeries / hospitalizations",
+             str(getattr(pprof, "surgeries", None) or "")),
+            ("Current medications",
+             str(getattr(pprof, "current_medications", None) or "")),
+            ("Immunizations", str(getattr(pprof, "immunizations", None) or "")),
+            ("Family history",
+             str(getattr(pprof, "family_history_text", None) or "")),
+            ("Menstrual / obstetric",
+             str(getattr(pprof, "menstrual_history", None) or "")),
+            ("Mental health / lifestyle",
+             str(getattr(pprof, "mental_health", None) or "")),
+        ]:
+            if value and value.strip():
+                history.append((label, value.strip()))
+    # ---- Allergies: structured records first, profile text as fallback ----
+    allergy_names: list[str] = []
+    try:
+        from app.models.tables import AllergyRecord
+        _aq = db.query(AllergyRecord).filter_by(owner_id=v.patient_id,
+                                                status="active")
+        _recs = _aq.all() if hasattr(_aq, "all") else []
+        for a in _recs or []:
+            label = str(getattr(a, "allergen", "") or "").strip()
+            if not label:
+                continue
+            extra = str(getattr(a, "reaction", "") or "").strip()
+            allergy_names.append(f"{label} ({extra})" if extra else label)
+    except Exception:
+        allergy_names = []
+    if not allergy_names:
+        prof_allergy = str(getattr(pprof, "allergies", None) or "").strip()
+        if prof_allergy:
+            allergy_names = [prof_allergy]
 
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+    # ---- Prescription identity: human-readable Rx No + 6-month validity ----
+    from datetime import timedelta as _td
+    visit_dt = v.visit_date or v.created_at.date()
+    rx_no = f"RX-{visit_dt.strftime('%Y%m%d')}-{str(v.id)[:6].upper()}"
+    try:
+        valid_till = (visit_dt + _td(days=180)).isoformat()
+    except Exception:
+        valid_till = "—"
+    return {
+        "doc": doc, "pat": pat, "sig": sig,
+        "allergies": allergy_names,
+        "rx_no": rx_no, "valid_till": valid_till,
+        "visit_dt": visit_dt,
+        "d_credentials": d_credentials, "d_addr": d_addr,
+        "d_phone": d_phone, "d_reg": d_reg,
+        "vit": vit, "age": age,
+        "sex": vit.get("sex") or getattr(pprof, "gender", None),
+        "p_phone": getattr(pprof, "phone", None) or (pat.phone if pat else None),
+        "p_hid": pat.health_id if pat else None,
+        "history": history,
+        "header_title": f"Dr. {doc.full_name}" if doc else "MedRec Clinic",
+        "header_sub": " · ".join(x for x in [
+            d_credentials or "", f"Reg: {d_reg}" if d_reg else "",
+            f"Ph: {d_phone}" if d_phone else "",
+            d_addr or ""] if x),
+    }
+
+
+def _rx_section(v: VisitNote, f: dict, st, show_doctor: bool = False) -> list:
+    """Designed flowables for one prescription (title band, patient card,
+    diagnosis, vitals chart, advice, medicines, signature)."""
+    from datetime import datetime as _dt
+    from xml.sax.saxutils import escape as _xe
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
     from reportlab.lib.units import mm
     from reportlab.lib import colors
-    buf = BytesIO()
-    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
-    styles = getSampleStyleSheet()
-    small = styles["Normal"].__class__("rx-small", parent=styles["Normal"])
-    small.fontSize = 9
-    small.leading = 12
-    right_small = styles["Normal"].__class__("rx-right", parent=small)
-    right_small.alignment = 2  # right
-    TEAL = colors.HexColor("#0e9384")
+    from app.services.pdf_widgets import (
+        title_band, section_head, info_pill, patient_card,
+        vitals_chart, vitals_flags_line, styled_table, rx_heading,
+        key_value_card, qr_drawing, digi_stamp_paragraph,
+    )
+    small, note_style, right_small = st.small, st.note_style, st.right_small
 
-    story = [
-        Paragraph(f"<b>Dr. {_xe(doc.full_name) if doc else 'Doctor'}</b>"
-                  f"{(' — ' + _xe(d_addr)) if d_addr else ''}", styles["Title"]),
-    ]
-    doc_sub = " · ".join(x for x in [
-        d_credentials or "", f"Reg: {d_reg}" if d_reg else "",
-        f"Ph: {d_phone}" if d_phone else ""] if x)
-    if doc_sub:
-        story.append(Paragraph(f"<font color=\"#475569\">{_xe(doc_sub)}</font>", small))
-    story += [Spacer(1, 4),
-              Paragraph("<b><font color=\"#0e9384\" size=\"13\">E-PRESCRIPTION</font></b>", styles["Normal"]),
-              HRFlowable(width="100%", thickness=1), Spacer(1, 6)]
-
-    # ---- Patient + visit details ----
-    pat_lines = [f"<b>PATIENT</b>", f"<b>{_xe(pat.full_name) if pat else '—'}</b>"]
-    demo = " · ".join(x for x in [
-        f"Age: {age}" if age not in (None, "") else "",
-        f"Sex: {sex}" if sex else "",
-        f"Health ID: {p_hid}" if p_hid else ""] if x)
-    if demo:
-        pat_lines.append(_xe(demo))
-    if pat and pat.email:
-        pat_lines.append(f"Email: {_xe(pat.email)}")
-    if p_phone:
-        pat_lines.append(f"Phone: {_xe(p_phone)}")
-    if p_addr:
-        pat_lines.append(f"Address: {_xe(p_addr)}")
-    visit_lines = [f"<b>VISIT DETAILS</b>", f"Date: {visit_dt}"]
-    if v.title:
-        visit_lines.append(f"Title: {_xe(v.title)}")
-    if v.diagnosis_code or v.diagnosis_name:
-        visit_lines.append("Diagnosis: " + _xe(" ".join(
-            x for x in [v.diagnosis_code or "", ("— " + v.diagnosis_name) if v.diagnosis_name else ""] if x)))
+    # ---- Designed title band: summary of the visit on one strip ----
+    band_right = f"Visit: {f['visit_dt']}"
     if v.follow_up_date:
-        visit_lines.append(f"<b>Follow-up: {v.follow_up_date}</b>")
-    info_tbl = Table([[Paragraph("<br/>".join(pat_lines), small),
-                       Paragraph("<br/>".join(visit_lines), small)]],
-                     colWidths=[100 * mm, 80 * mm])
-    info_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("INNERPADDING", (0, 0), (-1, -1), 6),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    story += [info_tbl, Spacer(1, 8)]
+        band_right += f"  •  Follow-up: {v.follow_up_date}"
+    story = [title_band("E-PRESCRIPTION", _xe(band_right)), Spacer(1, 6)]
+    if show_doctor and f["doc"] is not None:
+        story.append(Paragraph(
+            f"Prescribed by <b>Dr. {_xe(f['doc'].full_name)}</b>"
+            + (f" · {_xe(f['d_credentials'])}" if f["d_credentials"] else ""),
+            note_style))
+        story.append(Spacer(1, 4))
 
-    # ---- Vitals at prescription time ----
-    vit_items = []
-    if vit.get("bp_sys") or vit.get("bp_dia"):
-        vit_items.append(f"BP: {vit.get('bp_sys') or '—'}/{vit.get('bp_dia') or '—'} mmHg")
-    if vit.get("pulse") not in (None, ""):
-        vit_items.append(f"Pulse: {vit.get('pulse')} /min")
-    if vit.get("spo2") not in (None, ""):
-        vit_items.append(f"SpO2: {vit.get('spo2')}%")
-    if vit.get("temp_c") not in (None, ""):
-        vit_items.append(f"Temp: {vit.get('temp_c')} °C")
-    if vit.get("weight_kg") not in (None, ""):
-        vit_items.append(f"Weight: {vit.get('weight_kg')} kg")
-    if vit_items:
-        story.append(Paragraph("<b>Vitals:</b> " + _xe(" · ".join(vit_items)), small))
+    # ---- Patient summary card (identity only — contact details stay
+    # in the app, keeping the printout short) ----
+    demo = "  •  ".join(x for x in [
+        f"Age: {f['age']}" if f["age"] not in (None, "") else "",
+        f"Sex: {f['sex']}" if f["sex"] else "",
+        f"Health ID: {f['p_hid']}" if f["p_hid"] else ""] if x)
+    story.append(patient_card(
+        _xe(f["pat"].full_name) if f["pat"] else "—",
+        _xe(demo),
+        f"Phone: {_xe(f['p_phone'])}" if f["p_phone"] else ""))
+    if v.title:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(f"<b>{_xe(v.title)}</b>", small))
+    story.append(Spacer(1, 6))
+
+    # ---- Allergy safety box (always visible — chemists must see it) ----
+    if f.get("allergies"):
+        story.append(info_pill(
+            "<b>Allergies:</b> "
+            + _xe(" • ".join(f["allergies"])[:400]),
+            bg="#fef2f2", border="#fca5a5"))
+    else:
+        story.append(info_pill(
+            "<b>Allergies:</b> none recorded — please confirm with the "
+            "patient before dispensing",
+            bg="#f8fafc", border="#cbd5e1"))
+    story.append(Spacer(1, 6))
+
+    # ---- Diagnosis pill (doctor-style "Dx") ----
+    if v.diagnosis_code or v.diagnosis_name:
+        diag_txt = " ".join(
+            x for x in [v.diagnosis_code or "",
+                        ("— " + v.diagnosis_name) if v.diagnosis_name else ""]
+            if x)
+        story.append(info_pill(f"<b>Dx (Diagnosis):</b> {_xe(diag_txt)}"))
+        story.append(Spacer(1, 6))
+
+    # ---- Verification row: QR + Rx No + validity ----
+    qr_payload = (f"MEDREC-RX:{f['rx_no']}:{v.id}:{f['visit_dt']}")
+    rxid_tbl = Table(
+        [[qr_drawing(qr_payload, 24.0),
+          Paragraph(
+              f"Rx No: <b>{_xe(f['rx_no'])}</b><br/>"
+              f"Valid till: {_xe(f['valid_till'])} (6 months)<br/>"
+              f"<i>Scan to verify these particulars.</i>", small)]],
+        colWidths=[28 * mm, 152 * mm])
+    rxid_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cbd5e1")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("INNERPADDING", (0, 0), (-1, -1), 6),
+        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+    ]))
+    story += [rxid_tbl, Spacer(1, 4)]
+
+    # ---- Follow-up / refill callout ----
+    if v.follow_up_date:
+        story.append(info_pill(
+            f"<b>Review on {_xe(str(v.follow_up_date))}</b> — bring this "
+            "prescription. Ask your doctor about refills if medicines run out.",
+            bg="#f0fdf4", border="#86efac"))
+    else:
+        story.append(info_pill(
+            "No review scheduled — return if symptoms persist or worsen.",
+            bg="#f8fafc", border="#cbd5e1"))
+    story.append(Spacer(1, 6))
+
+    # ---- Clinical history written by the patient (filled rows only) ----
+    if f.get("history"):
+        story.append(section_head("Clinical history (as shared by patient)"))
+        story.append(Spacer(1, 4))
+        story.append(key_value_card([(f"<b>{_xe(lab)}</b>", _xe(val))
+                                     for lab, val in f["history"]]))
+        story.append(Spacer(1, 6))
+
+    # ---- Vitals summary chart (bars vs healthy ranges + flags) ----
+    chart, flags = vitals_chart(f["vit"])
+    if chart is not None or flags:
+        story.append(section_head("Vitals at a glance"))
+        story.append(Spacer(1, 4))
+        if chart is not None:
+            story.append(chart)
+        summary = vitals_flags_line(flags)
+        if summary:
+            story.append(Spacer(1, 2))
+            story.append(Paragraph(f"<i>{_xe(summary)}</i>", note_style))
         story.append(Spacer(1, 6))
 
     # ---- Advice / findings ----
-    story.append(Paragraph("<b>Advice / Findings</b>", styles["Normal"]))
-    story.append(Paragraph((_xe(v.content or "—")).replace(chr(10), "<br/>"), styles["Normal"]))
+    story.append(section_head("Advice / Findings"))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph((_xe(v.content or "—")).replace(chr(10), "<br/>"), small))
     story.append(Spacer(1, 8))
 
-    # ---- Medicines table ----
+    # ---- Medicines table (doctor-style Rx badge heading) ----
     meds = list(v.medicines or [])
     if meds:
-        story.append(Paragraph("<b>Medicines</b>", styles["Normal"]))
-        mrows = [["#", "Medicine", "Dosage", "Frequency", "Duration"]]
+        story.append(rx_heading(len(meds)))
+        story.append(Spacer(1, 4))
+        mrows = []
         for i, m in enumerate(meds, 1):
             mrows.append([str(i), _xe(str(m.get("name", ""))),
                           _xe(str(m.get("dosage") or "—")),
                           _xe(str(m.get("frequency") or "—")),
                           _xe(str(m.get("duration") or "—"))])
-        mtbl = Table(mrows, colWidths=[10 * mm, 70 * mm, 35 * mm, 35 * mm, 30 * mm])
-        mtbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), TEAL),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-             [colors.white, colors.HexColor("#f8fafc")]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        story += [mtbl, Spacer(1, 8)]
+        story.append(styled_table(
+            ["#", "Medicine", "Dosage", "Frequency", "Duration"], mrows,
+            [10 * mm, 70 * mm, 35 * mm, 35 * mm, 30 * mm]))
+        story.append(Spacer(1, 8))
 
     generated = _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    story += [Spacer(1, 12),
-              Table([[Paragraph(
-                  f"<i>Computer-generated via MedRec · {generated}</i><br/>"
-                  f"<i>Follow your doctor's advice; do not self-medicate.</i>",
-                  small),
-                  Paragraph(f"Signature: <b>{_xe(sig)}</b><br/>Date: {visit_dt}",
-                            right_small)]],
-                  colWidths=[110 * mm, 50 * mm])]
-    pdf.build(story)
+    sign_tbl = Table(
+        [[Paragraph(
+            f"<i>Computer-generated via MedRec · {generated}</i><br/>"
+            f"<i>Follow your doctor's advice; do not self-medicate.</i>",
+            note_style),
+          Paragraph(f"Signature: <b>Dr. {_xe(f['sig'])}</b><br/>Date: {f['visit_dt']}<br/>"
+                    "Authorised Signatory",
+                    right_small)]],
+        colWidths=[100 * mm, 60 * mm])
+    sign_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEABOVE", (1, 0), (1, 0), 0.7, colors.HexColor("#94a3b8")),
+        ("TOPPADDING", (1, 0), (1, 0), 6),
+    ]))
+    story += [Spacer(1, 6), sign_tbl, Spacer(1, 4),
+              digi_stamp_paragraph(f"Dr. {f['sig']}", generated)]
+    return story
+
+
+@router.get("/bulk-pdf")
+def bulk_rx_pdf(patient_id: str | None = None,
+                family_member_id: str | None = None, limit: int = 50,
+                db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
+    """Download ALL e-prescriptions as one combined PDF (newest first,
+    one designed Rx section per prescription with page breaks).
+
+    Patients download their own (optional ?family_member_id= mirrors
+    GET /visits/my); doctors pass ?patient_id= for an assigned patient.
+    Non-prescription visit notes are excluded."""
+    from datetime import datetime as _dt
+    from fastapi.responses import Response
+    from io import BytesIO
+    from reportlab.platypus import PageBreak
+    from app.services.clinic_branding import build_branded_pdf, brand
+    try:
+        limit = max(1, min(int(limit), 50))
+    except Exception:
+        limit = 50
+    if user.role == "patient":
+        pid = user.id
+    elif user.role == "doctor":
+        if not patient_id:
+            raise HTTPException(status_code=400, detail="patient_id required")
+        if not is_assigned(db, user.id, patient_id):
+            raise HTTPException(status_code=403, detail="Patient not assigned to you")
+        pid = patient_id
+    else:
+        raise HTTPException(status_code=403, detail="Patients and doctors only")
+    q = (db.query(VisitNote).filter_by(patient_id=pid, note_type="prescription"))
+    if family_member_id:
+        q = q.filter_by(family_member_id=family_member_id)
+    rows = (q.order_by(VisitNote.visit_date.desc().nullslast(),
+                       VisitNote.created_at.desc())
+            .limit(limit).all())
+    if not rows:
+        raise HTTPException(status_code=404, detail="No prescriptions found")
+    st = _rx_styles()
+    story: list = []
+    for i, n in enumerate(rows):
+        if i:
+            story.append(PageBreak())
+        story.extend(_rx_section(n, _rx_facts(db, n), st, show_doctor=True))
+    buf = BytesIO()
+    b = brand()
+    build_branded_pdf(buf, story, b["name"],
+                      f"Prescriptions compilation · {len(rows)} prescription(s)")
+    stamp = _dt.utcnow().strftime("%Y%m%d")
+    return Response(content=buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="prescriptions-{stamp}.pdf"'})
+
+
+@router.get("/{note_id}/rx-pdf")
+def rx_pdf(note_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Detailed e-prescription PDF: letterhead, patient demographics + vitals,
+    diagnosis, advice, medicines table, follow-up, signature block.
+
+    Patients download own; assigned doctor downloads. Signature name comes from
+    the doctor's latest RxTemplate.signature_name or their full name."""
+    from fastapi.responses import Response
+    from io import BytesIO
+    from app.services.clinic_branding import build_branded_pdf
+    v = db.query(VisitNote).filter_by(id=note_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.role == "patient" and v.patient_id != user.id:
+        raise HTTPException(status_code=403, detail="Not yours")
+    if user.role == "doctor" and v.doctor_id != user.id and not is_assigned(db, user.id, v.patient_id):
+        raise HTTPException(status_code=403, detail="Not yours")
+    f = _rx_facts(db, v)
+    buf = BytesIO()
+    build_branded_pdf(buf, _rx_section(v, f, _rx_styles()),
+                      f["header_title"], f["header_sub"])
     return Response(content=buf.getvalue(), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="rx-{note_id[:8]}.pdf"'})

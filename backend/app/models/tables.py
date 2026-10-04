@@ -439,6 +439,8 @@ class Review(Base):
     patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..5
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Explicit opt-in: only consented, high-rated reviews appear as testimonials.
+    showcase_consent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -826,6 +828,20 @@ class Invoice(Base):
     issued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class InvoicePayment(Base):
+    """One row per collection event on an invoice (part-payments included)."""
+    __tablename__ = "invoice_payments"
+
+    id: Mapped[str] = _uuid_col()
+    invoice_id: Mapped[str] = mapped_column(String(36), ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    payment_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    upi_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    paid_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class PharmacyItem(Base):

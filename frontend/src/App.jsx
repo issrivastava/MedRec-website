@@ -6,6 +6,7 @@ import { LangProvider } from './i18n.jsx'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import NeedHelp from './components/NeedHelp'
+import { SiteFloaters } from './components/SiteChrome'
 import ProtectedRoute from './components/ProtectedRoute'
 import SessionTimeout from './components/SessionTimeout'
 import Landing from './pages/Landing'
@@ -38,6 +39,8 @@ const DoctorAlerts = lazy(() => import('./pages/doctor/Alerts'))
 const DoctorRatings = lazy(() => import('./pages/doctor/Ratings'))
 const DoctorProfilePage = lazy(() => import('./pages/doctor/DoctorProfile'))
 const Contact = lazy(() => import('./pages/Contact'))
+const Triage = lazy(() => import('./pages/Triage'))
+const Pricing = lazy(() => import('./pages/Pricing'))
 const Profile = lazy(() => import('./pages/Profile'))
 const Policy = lazy(() => import('./pages/Policy'))
 const Medicines = lazy(() => import('./pages/Medicines'))
@@ -76,6 +79,8 @@ export default function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/policy" element={<Policy />} />
+              <Route path="/triage" element={<Triage />} />
+              <Route path="/pricing" element={<Pricing />} />
               <Route path="/s/:token" element={<PublicShare />} />
               {/* Features require Google login — guests bounce to /login */}
               <Route path="/medicines" element={<ProtectedRoute roles={['patient', 'doctor', 'admin']}><Medicines /></ProtectedRoute>} />
@@ -118,6 +123,7 @@ export default function App() {
           </main>
           <Footer />
           <NeedHelp />
+          <SiteFloaters />
         </div>
       </BrowserRouter>
       </LangProvider>

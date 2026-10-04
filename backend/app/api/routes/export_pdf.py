@@ -31,6 +31,8 @@ def export_pdf(patient_id: str | None = None, db: Session = Depends(get_db),
     docs = []
     for d in db.query(Document).filter_by(owner_id=pid).order_by(Document.visit_date.desc()).all():
         docs.append({"title": d.title, "doc_type": d.doc_type,
+                     "category": getattr(d, "category", None),
+                     "report_kind": getattr(d, "report_kind", None),
                      "visit_date": d.visit_date.isoformat() if d.visit_date else "",
                      "doctor_name": d.doctor_name,
                      "summary": d.ai_summary.summary_text if d.ai_summary else ""})
@@ -46,10 +48,28 @@ def export_pdf(patient_id: str | None = None, db: Session = Depends(get_db),
         doc = db.query(User).filter_by(id=a.doctor_id).first()
         appts.append({"date": a.date.isoformat(), "start_time": a.start_time.strftime("%H:%M"),
                       "doctor_name": doc.full_name if doc else "", "status": a.status})
-    alerts = [{"test_name": x.test_name, "value": x.value, "unit": x.unit, "flag": x.flag, "message": x.message}
+    alerts = [{"test_name": x.test_name, "value": x.value, "unit": x.unit, "flag": x.flag, "message": x.message,
+               "created_at": x.created_at.isoformat() if x.created_at else ""}
               for x in db.query(HealthAlert).filter_by(patient_id=pid).all()]
 
-    pdf = build_record_pdf(patient.full_name, patient.email, profile, docs, visits, appts, alerts)
+    # Per-test reading history for trend sparklines (last 6 points each).
+    from app.models.tables import LabResult
+    trends: dict[str, list[float]] = {}
+    try:
+        for lr in (db.query(LabResult).filter_by(owner_id=pid)
+                   .order_by(LabResult.measured_at.asc()).all()):
+            try:
+                val = float(lr.value)
+            except (TypeError, ValueError):
+                continue
+            trends.setdefault(
+                str(lr.display_name or "").strip().lower(), []).append(val)
+        trends = {k: v[-6:] for k, v in trends.items() if v}
+    except Exception:
+        trends = {}
+
+    pdf = build_record_pdf(patient.full_name, patient.email, profile, docs, visits, appts, alerts,
+                           trends=trends)
     fname = f"medrec-{patient.full_name.replace(' ', '-').lower()}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})

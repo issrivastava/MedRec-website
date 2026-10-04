@@ -27,7 +27,7 @@ export function StarPicker({ value, onChange }) {
    Shown in the writer's own dashboard. */
 export function MyReviews({ role, doctors }) {
   const isPatient = role === 'patient'
-  const [docForm, setDocForm] = useState({ doctor_id: '', rating: 5, comment: '' })
+  const [docForm, setDocForm] = useState({ doctor_id: '', rating: 5, comment: '', showcase_consent: false })
   const [myDocs, setMyDocs] = useState([])
   const [msg, setMsg] = useState('')
 
@@ -43,7 +43,7 @@ export function MyReviews({ role, doctors }) {
     if (!docForm.doctor_id) return setMsg('Pick a doctor first')
     await api.post('/api/reviews', docForm)
     setMsg('Thanks — your doctor review is saved!')
-    setDocForm({ doctor_id: '', rating: 5, comment: '' })
+    setDocForm({ doctor_id: '', rating: 5, comment: '', showcase_consent: false })
     load()
   }
 
@@ -58,6 +58,10 @@ export function MyReviews({ role, doctors }) {
           </select>
           <div><StarPicker value={docForm.rating} onChange={(r) => setDocForm({ ...docForm, rating: r })} /></div>
           <textarea placeholder="How was your experience? (optional)" value={docForm.comment} onChange={(e) => setDocForm({ ...docForm, comment: e.target.value })} rows={3} style={s.input} />
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: '#475569' }}>
+            <input type="checkbox" checked={!!docForm.showcase_consent} onChange={(e) => setDocForm({ ...docForm, showcase_consent: e.target.checked })} style={{ marginTop: 3 }} />
+            <span>Show my first name + review on the MedRec homepage. Optional — only 4★+ reviews are shown, and you can remove consent anytime by editing this review.</span>
+          </label>
           <button style={s.btn}>Submit doctor review</button>
           {msg && <span style={{ color: 'green' }}>{msg}</span>}
         </form>

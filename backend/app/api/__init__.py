@@ -10,7 +10,7 @@ from app.api.routes import wellness, sharing, messages, care, compare
 from app.api.routes import practice
 from app.api.routes import clinical
 from app.api.routes import realtime
-from app.api.routes import directory, billing, pharmacy, fhir
+from app.api.routes import directory, billing, pharmacy, fhir, branding
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -50,3 +50,4 @@ api_router.include_router(directory.router, prefix="/directory", tags=["director
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(pharmacy.router, prefix="/pharmacy", tags=["pharmacy"])
 api_router.include_router(fhir.router, prefix="/fhir", tags=["fhir"])
+api_router.include_router(branding.router, prefix="/branding", tags=["branding"])

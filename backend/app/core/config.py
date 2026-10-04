@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     # sends tomorrow's appointment reminders + due medicine nudges once daily.
     # Set False to disable (e.g. when an external cron hits the endpoints).
     AUTO_REMINDERS: bool = True
+    # --- Clinic branding: printed on every generated PDF (e-prescription,
+    # bill receipt, certificates). Header = logo + name; footer = support
+    # email + working hours + copyright. Override in backend/.env. ---
+    CLINIC_NAME: str = "MedRec Clinic"
+    CLINIC_ADDRESS: str = ""
+    CLINIC_SUPPORT_EMAIL: str = "support@medrec.example.com"
+    CLINIC_TIMINGS: str = "Mon–Sat, 10:00 AM – 8:00 PM"
+    CLINIC_LOGO_PATH: str = ""  # absolute/relative path to a PNG/JPG logo; empty = drawn cross mark
 
     @field_validator("SECRET_KEY")
     @classmethod

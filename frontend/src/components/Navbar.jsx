@@ -4,8 +4,9 @@ import { useAuth } from '../context/AuthContext'
 import { useLang } from '../i18n.jsx'
 import api, { avatarSrc } from '../api'
 import { ThemeToggle } from './HealthUX'
+import { EmergencyBanner } from './SiteChrome'
 
-const DISCOVER_PATHS = ['/medicines', '/illnesses', '/diseases', '/find-doctors', '/ask-ai']
+const DISCOVER_PATHS = ['/medicines', '/illnesses', '/diseases', '/find-doctors', '/ask-ai', '/triage', '/pricing']
 const RECORDS_PATHS = ['/upload', '/billing', '/directory', '/pharmacy']
 
 export default function Navbar() {
@@ -124,7 +125,9 @@ export default function Navbar() {
   }, [menu])
 
   return (
-    <header className="topbar">
+    <>
+      <EmergencyBanner />
+      <header className="topbar">
       <nav className="topbar-inner">
         <Link to="/" className="brand" onClick={() => setOpen(false)}>
           <span className="brand-mark teal">+</span> MedRec
@@ -172,6 +175,8 @@ export default function Navbar() {
                     <NavLink to="/medicines" className={linkCls} role="menuitem">💊 {t('nav.medicines')}</NavLink>
                     <NavLink to="/illnesses" className={linkCls} role="menuitem">🩺 {t('nav.illnesses')}</NavLink>
                     <NavLink to="/find-doctors" className={linkCls} role="menuitem">🏥 {t('nav.findDoctors')}</NavLink>
+                    <NavLink to="/triage" className={linkCls} role="menuitem">🧭 Symptom guide</NavLink>
+                    <NavLink to="/pricing" className={linkCls} role="menuitem">💳 Pricing</NavLink>
                     <NavLink to="/ask-ai" className={linkCls} role="menuitem">🤖 {t('nav.askAi')}</NavLink>
                   </div>
                 )}
@@ -216,13 +221,16 @@ export default function Navbar() {
             </>
           ) : (
             <>
+              <NavLink to="/triage" className={linkCls}>🧭 Guide</NavLink>
+              <NavLink to="/pricing" className={linkCls}>💳 Pricing</NavLink>
               <NavLink to="/contact" className={linkCls}>{t('nav.contact')}</NavLink>
               <Link to="/login" className="nav-cta">{t('nav.getStarted')}</Link>
             </>
           )}
         </div>
       </nav>
-    </header>
+      </header>
+    </>
   )
 }
 

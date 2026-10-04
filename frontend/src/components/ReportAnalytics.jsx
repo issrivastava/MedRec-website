@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import api from '../api'
+import api, { downloadBlobResponse, friendlyDownloadError } from '../api'
 import { useProfile } from '../context/ProfileContext'
 import { REPORT_CATEGORIES, kindLabel } from '../reportKinds'
 import { RangeToggle, filterByRange, MiniChart } from './HealthUX'
@@ -12,6 +12,24 @@ export default function ReportAnalytics({ docs }) {
   const [rx, setRx] = useState([])
   const [test, setTest] = useState('')
   const [range, setRange] = useState('1Y')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState('')
+
+  /* Download every e-prescription as one combined PDF (newest first). */
+  const downloadAllRx = async () => {
+    if (bulkBusy || !rx.length) return
+    setBulkBusy(true); setBulkMsg('')
+    try {
+      const params = activeId ? { family_member_id: activeId } : {}
+      const res = await api.get('/api/visits/bulk-pdf', { params, responseType: 'blob' })
+      const name = await downloadBlobResponse(res, 'prescriptions.pdf')
+      setBulkMsg(`✅ Saved ${name}`)
+    } catch (e) {
+      setBulkMsg(`⚠️ ${friendlyDownloadError(e)}`)
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   useEffect(() => {
     const params = activeId ? { family_member_id: activeId } : {}
@@ -103,6 +121,14 @@ export default function ReportAnalytics({ docs }) {
       ) : <div className="empty">Upload lab reports (CBC, TSH, LFT…) to unlock trends.</div>}
 
       <h4 style={{ margin: '16px 0 8px' }}>Prescription history by medicine</h4>
+      {rx.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+          <button disabled={bulkBusy} onClick={downloadAllRx} title="Download every e-prescription as one designed PDF (newest first)">
+            {bulkBusy ? '⏳ Preparing…' : '⬇ Download all prescriptions (PDF)'}
+          </button>
+          {bulkMsg && <small style={{ color: bulkMsg.startsWith('✅') ? 'green' : '#b91c1c' }}>{bulkMsg}</small>}
+        </div>
+      )}
       {rx.length ? rx.slice(0, 12).map((r) => (
         <div key={r.medicine} className="doc-row">
           <div className="grow">

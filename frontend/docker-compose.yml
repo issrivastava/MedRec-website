@@ -1,0 +1,2 @@
+  frontend:
+    image: issrivastava/medrec-frontend:1.0

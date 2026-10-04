@@ -68,6 +68,26 @@ def _check_invoice_access(db: Session, user: User, inv: Invoice) -> None:
     raise HTTPException(status_code=403, detail="Not yours")
 
 
+def _record_payment(db: Session, inv, amount: float,
+                    mode: str | None, upi_ref: str | None,
+                    actor_id: str | None) -> None:
+    """Append one InvoicePayment row (never breaks the money flow itself)."""
+    try:
+        from app.models.tables import InvoicePayment
+        if float(amount or 0) <= 0:
+            return
+        db.add(InvoicePayment(
+            invoice_id=inv.id, amount=float(amount),
+            payment_mode=mode, upi_ref=(upi_ref or None),
+            paid_at=datetime.utcnow(), created_by=actor_id))
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def _receipt_no(db: Session) -> str:
     import secrets
     base = datetime.utcnow().strftime("R-%Y%m%d")
@@ -120,6 +140,8 @@ def create_invoice(data: InvoiceIn, db: Session = Depends(get_db),
     db.add(inv)
     db.commit()
     db.refresh(inv)
+    _record_payment(db, inv, inv.paid_amount, inv.payment_mode,
+                    getattr(inv, "upi_ref", None), user.id)
     try:
         from app.models.tables import AuditLog
         from app.services.notify import notify
@@ -228,6 +250,8 @@ def pay_invoice(invoice_id: str, data: InvoicePayIn, db: Session = Depends(get_d
         inv.status = "partially_paid"
     db.commit()
     db.refresh(inv)
+    _record_payment(db, inv, data.paid_amount, data.payment_mode,
+                    getattr(data, "upi_ref", None), user.id)
     try:
         from app.models.tables import AuditLog
         from app.services.notify import notify
@@ -408,135 +432,216 @@ def invoice_receipt(invoice_id: str, db: Session = Depends(get_db),
     cat_title = ((getattr(inv, "category", None) or "other")
                  .replace("_", " ").title())
 
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
     from reportlab.lib.units import mm
     from reportlab.lib import colors
+    from app.services.clinic_branding import build_branded_pdf
+    from app.services.pdf_widgets import (
+        title_band, section_head, info_pill, patient_card, styled_table,
+        qr_drawing, digi_stamp_paragraph,
+    )
     buf = BytesIO()
-    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
     styles = getSampleStyleSheet()
     small = styles["Normal"].__class__("rcpt-small", parent=styles["Normal"])
     small.fontSize = 9
     small.leading = 12
+    small.textColor = colors.HexColor("#334155")
+    note_style = styles["Normal"].__class__("rcpt-note", parent=styles["Normal"])
+    note_style.fontSize = 8.5
+    note_style.leading = 11.5
+    note_style.textColor = colors.HexColor("#64748b")
     right_small = styles["Normal"].__class__("rcpt-right", parent=small)
     right_small.alignment = 2  # right
 
-    TEAL = colors.HexColor("#0e9384")
-    story = [
-        Paragraph(f"<b>{_xe(doc_name)}</b>"
-                  f"{(' — ' + _xe(d_addr)) if d_addr else ''}", styles["Title"]),
-    ]
-    doc_sub = " · ".join(x for x in [
+    # Branded header (logo + name) is drawn on every page; the billed-by
+    # details become the header subtitle so they are not lost.
+    header_title = doc_name
+    header_sub = " · ".join(x for x in [
         d_credentials or "", f"Reg: {d_reg}" if d_reg else "",
-        f"Ph: {d_phone}" if d_phone else ""] if x)
-    if doc_sub:
-        story.append(Paragraph(f"<font color=\"#475569\">{_xe(doc_sub)}</font>", small))
-    story += [Spacer(1, 4),
-              Paragraph(f"<b><font color=\"#0e9384\" size=\"13\">PAYMENT RECEIPT</font></b>", styles["Normal"]),
-              HRFlowable(width="100%", thickness=1), Spacer(1, 6)]
+        f"Ph: {d_phone}" if d_phone else "",
+        d_addr or ""] if x)
 
-    # ---- Billed-to vs receipt-details ----
-    billed_to = [f"<b>BILLED TO</b>",
-                 f"<b>{_xe(pat.full_name) if pat else '—'}</b>"]
-    if p_hid:
-        billed_to.append(f"Health ID: {_xe(p_hid)}")
-    if pat and pat.email:
-        billed_to.append(f"Email: {_xe(pat.email)}")
-    if p_phone:
-        billed_to.append(f"Phone: {_xe(p_phone)}")
-    if p_addr:
-        billed_to.append(f"Address: {_xe(p_addr)}")
-    details = [f"<b>RECEIPT DETAILS</b>",
-               f"Receipt No: <b>{_xe(inv.receipt_no or inv.id[:8])}</b>",
-               f"Issued: {issued}",
-               f"Bill type: <b>{_xe(cat_title)}</b>",
-               f"Status: {_xe(inv.status or 'issued')}"]
+    # ---- Designed title band ----
+    story = [title_band(
+        "PAYMENT RECEIPT",
+        _xe(f"Receipt: {inv.receipt_no or inv.id[:8]}  •  Issued: {issued}")),
+        Spacer(1, 6)]
+
+    # ---- Billed-to card ----
+    billed_sub = "  •  ".join(x for x in [
+        f"Health ID: {p_hid}" if p_hid else "",
+        f"Phone: {p_phone}" if p_phone else ""] if x)
+    billed_meta = "  •  ".join(x for x in [
+        f"Email: {pat.email}" if pat and pat.email else "",
+        f"{p_addr}" if p_addr else ""] if x)
+    story.append(patient_card(
+        _xe(pat.full_name) if pat else "—",
+        _xe(billed_sub), _xe(billed_meta)))
+    story.append(Spacer(1, 6))
+
+    # ---- Status pill (colour-coded) + receipt details pill ----
+    status = (inv.status or "issued").lower()
+    status_colors = {
+        "paid": ("#f0fdf4", "#86efac"),
+        "partially_paid": ("#fffbeb", "#fcd34d"),
+        "issued": ("#eff6ff", "#bfdbfe"),
+        "cancelled": ("#fef2f2", "#fca5a5"),
+        "refunded": ("#fef2f2", "#fca5a5"),
+    }
+    sbg, sbd = status_colors.get(status, ("#eff6ff", "#bfdbfe"))
+    detail_bits = [f"Bill type: <b>{_xe(cat_title)}</b>",
+                   f"Mode: {_xe((inv.payment_mode or '—').upper())}"]
     if appt is not None:
         try:
-            details.append(f"Visit: {appt.date} · {appt.start_time.strftime('%H:%M')}"
-                           + (f" (Token {appt.token_no})" if appt.token_no else ""))
+            detail_bits.append(
+                f"Visit: {appt.date} · {appt.start_time.strftime('%H:%M')}"
+                + (f" (Token {appt.token_no})" if appt.token_no else ""))
         except Exception:
             pass
-    details.append(f"Mode: {_xe((inv.payment_mode or '—').upper())}")
     if inv.upi_ref:
-        details.append(f"UPI Ref / UTR: <b>{_xe(inv.upi_ref)}</b>")
+        detail_bits.append(f"UPI Ref / UTR: <b>{_xe(inv.upi_ref)}</b>")
     if getattr(inv, "referred_by", None):
-        details.append(f"Referred by: {_xe(inv.referred_by)}")
+        detail_bits.append(f"Referred by: {_xe(inv.referred_by)}")
     if paid_on:
-        details.append(f"Paid on: {paid_on}")
-    info_tbl = Table([[Paragraph("<br/>".join(billed_to), small),
-                       Paragraph("<br/>".join(details), small)]],
-                     colWidths=[100 * mm, 80 * mm])
-    info_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("INNERPADDING", (0, 0), (-1, -1), 6),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    story += [info_tbl, Spacer(1, 8)]
+        detail_bits.append(f"Paid on: {paid_on}")
+    story.append(info_pill(
+        f"<b>Status: {_xe(status.replace('_', ' ').title())}</b>  •  "
+        + "  •  ".join(detail_bits), bg=sbg, border=sbd))
+    story.append(Spacer(1, 6))
 
     # ---- Items ----
-    rows = [["Item", "Qty", "Rate", "Amount"]]
+    story.append(section_head("Bill details"))
+    story.append(Spacer(1, 4))
     items = list(inv.items or [])
     if not items:
         # No line items stored — show the billed head so the table is meaningful.
         items = [{"label": cat_title, "qty": 1, "rate": total}]
+    mrows = []
     for it in items:
         qty = it.get("qty", 1) or 1
         rate = float(it.get("rate", 0) or 0)
-        rows.append([_xe(str(it.get("label", ""))), str(qty),
-                     f"Rs.{rate:.2f}", f"Rs.{float(qty) * rate:.2f}"])
-    tbl = Table(rows, colWidths=[80 * mm, 20 * mm, 30 * mm, 30 * mm])
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), TEAL),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-        ("ALIGN", (0, 0), (0, -1), "LEFT"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-         [colors.white, colors.HexColor("#f8fafc")]),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    story.append(tbl)
+        mrows.append([_xe(str(it.get("label", ""))), str(qty),
+                      f"Rs.{rate:.2f}", f"Rs.{float(qty) * rate:.2f}"])
+    story.append(styled_table(
+        ["Item", "Qty", "Rate", "Amount"], mrows,
+        [90 * mm, 20 * mm, 35 * mm, 35 * mm]))
     story.append(Spacer(1, 6))
 
-    # ---- Totals + amount in words ----
-    totals = Table([[f"Total: Rs.{total:.2f}"],
-                    [f"Paid: Rs.{paid:.2f}"],
-                    [f"<b>Balance: Rs.{balance:.2f}</b>"]],
-                   colWidths=[60 * mm])
+    # ---- Totals card + amount in words ----
+    tot_style = styles["Normal"].__class__("rcpt-tot", parent=small)
+    tot_style.alignment = 2  # right
+    tot_bold = styles["Normal"].__class__("rcpt-tot-b", parent=tot_style)
+    tot_bold.fontName = "Helvetica-Bold"
+    totals = Table([[Paragraph(f"Total: Rs.{total:.2f}", tot_style)],
+                    [Paragraph(f"Paid: Rs.{paid:.2f}", tot_style)],
+                    [Paragraph(f"Balance: Rs.{balance:.2f}", tot_bold)]],
+                   colWidths=[62 * mm])
     totals.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cbd5e1")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.2, colors.HexColor("#0e9384")),
         ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.grey),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
     ]))
     totals.hAlign = "RIGHT"
     story.append(totals)
-    story.append(Paragraph(
-        f"<i>Amount in words: {_xe(_in_words_rupees(total))}</i>", small))
+    story.append(Spacer(1, 4))
+    story.append(info_pill(
+        f"<i>Amount in words: {_xe(_in_words_rupees(total))}</i>"))
     story.append(Spacer(1, 6))
 
-    if inv.insurance_provider:
-        story.append(Paragraph(
-            f"Insurance: {_xe(inv.insurance_provider)} · "
-            f"Policy {_xe(inv.insurance_policy_no or '—')} · "
-            f"Claim Rs.{float(inv.insurance_claim_amount or 0):.2f}",
-            styles["Normal"]))
-    if inv.notes:
-        story.append(Paragraph(f"<b>Notes:</b> {_xe(inv.notes)}", small))
+    # ---- Payments received (one row per collection event) ----
+    try:
+        from app.models.tables import InvoicePayment
+        pay_rows = (db.query(InvoicePayment).filter_by(invoice_id=inv.id)
+                    .order_by(InvoicePayment.paid_at.asc()).all())
+    except Exception:
+        pay_rows = []
+    if pay_rows:
+        story.append(section_head(f"Payments received ({len(pay_rows)})"))
         story.append(Spacer(1, 4))
+        prows = []
+        rowed = 0.0
+        for p in pay_rows:
+            try:
+                when = p.paid_at.date().isoformat() if p.paid_at else "—"
+            except Exception:
+                when = "—"
+            rowed += float(p.amount or 0)
+            prows.append([when, _xe(str(p.payment_mode or "—").upper()),
+                          f"Rs.{float(p.amount or 0):.2f}",
+                          _xe(str(p.upi_ref or "—"))])
+        if rowed < paid - 0.005:
+            # Collections recorded before itemised history existed.
+            prows.append(["—", "earlier", f"Rs.{paid - rowed:.2f}",
+                          "before itemised history"])
+        story.append(styled_table(
+            ["Date", "Mode", "Amount", "Ref"], prows,
+            [40 * mm, 35 * mm, 45 * mm, 60 * mm]))
+        story.append(Spacer(1, 6))
+    elif paid > 0:
+        story.append(info_pill(
+            f"<b>Paid Rs.{paid:.2f}</b> via "
+            f"{_xe(str(inv.payment_mode or '—').upper())}"))
+        story.append(Spacer(1, 6))
+
+    # ---- Scan-to-pay QR for the outstanding balance ----
+    from urllib.parse import quote as _quote
+    vpa = (settings.CLINIC_UPI_ID or "").strip()
+    if balance > 0 and vpa:
+        pay_link = (f"upi://pay?pa={_quote(vpa)}"
+                    f"&pn={_quote(header_title[:60])}"
+                    f"&am={balance:.2f}&cu=INR"
+                    f"&tn={_quote((inv.receipt_no or inv.id[:8]))}")
+        qr_tbl = Table(
+            [[qr_drawing(pay_link, 26.0),
+              Paragraph(
+                  f"<b>Scan to pay the balance</b><br/>"
+                  f"Rs.{balance:.2f} to {_xe(vpa)}<br/>"
+                  f"<i>Pay via any UPI app, then share the UTR/ref.</i>",
+                  small)]],
+            colWidths=[30 * mm, 150 * mm])
+        qr_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cbd5e1")),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+            ("INNERPADDING", (0, 0), (-1, -1), 6),
+            ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+        ]))
+        story += [qr_tbl, Spacer(1, 6)]
+
+    if inv.insurance_provider:
+        story.append(info_pill(
+            f"<b>Insurance:</b> {_xe(inv.insurance_provider)}  •  "
+            f"Policy {_xe(inv.insurance_policy_no or '—')}  •  "
+            f"Claim Rs.{float(inv.insurance_claim_amount or 0):.2f}",
+            bg="#f5f3ff", border="#c4b5fd"))
+        story.append(Spacer(1, 6))
+    if inv.notes:
+        story.append(section_head("Notes"))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph((_xe(inv.notes)).replace(chr(10), "<br/>"), small))
+        story.append(Spacer(1, 6))
     generated = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    story += [Spacer(1, 18),
-              Table([[Paragraph(
-                  f"<i>Computer-generated receipt via MedRec · {generated}</i>",
-                  small),
-                  Paragraph("_________________________"
-                            "<br/>Authorised Signatory", right_small)]],
-                  colWidths=[110 * mm, 50 * mm])]
-    pdf.build(story)
+    sign_tbl = Table(
+        [[Paragraph(
+            f"<i>Computer-generated receipt via MedRec · {generated}</i>",
+            note_style),
+          Paragraph("Authorised Signatory", right_small)]],
+        colWidths=[110 * mm, 50 * mm])
+    sign_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEABOVE", (1, 0), (1, 0), 0.7, colors.HexColor("#94a3b8")),
+        ("TOPPADDING", (1, 0), (1, 0), 6),
+    ]))
+    story += [Spacer(1, 12), sign_tbl, Spacer(1, 4),
+              digi_stamp_paragraph(header_title, generated)]
+    build_branded_pdf(buf, story, header_title, header_sub)
     return Response(content=buf.getvalue(), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{inv.receipt_no or inv.id[:8]}.pdf"'})
 

@@ -27,8 +27,9 @@ def _out(db: Session, r: Review, mask_patient: bool = False) -> dict:
         pass
     return {"id": r.id, "doctor_id": r.doctor_id, "patient_id": r.patient_id,
             "doctor_name": doc.full_name if doc else None, "patient_name": pname,
-            "rating": r.rating, "comment": r.comment, "created_at": r.created_at,
-            "doctor_reply": reply}
+            "rating": r.rating, "comment": r.comment,
+            "showcase_consent": bool(getattr(r, "showcase_consent", False)),
+            "created_at": r.created_at, "doctor_reply": reply}
 
 
 def _average(db: Session, doctor_id: str) -> tuple[float | None, int]:
@@ -46,10 +47,12 @@ def leave_review(data: ReviewIn, db: Session = Depends(get_db), user: User = Dep
     if existing:
         existing.rating = data.rating
         existing.comment = data.comment
+        existing.showcase_consent = bool(data.showcase_consent)
         db.commit()
         db.refresh(existing)
         return _out(db, existing)
-    r = Review(doctor_id=data.doctor_id, patient_id=user.id, rating=data.rating, comment=data.comment)
+    r = Review(doctor_id=data.doctor_id, patient_id=user.id, rating=data.rating,
+               comment=data.comment, showcase_consent=bool(data.showcase_consent))
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -89,8 +92,10 @@ def doctor_rating(doctor_id: str, db: Session = Depends(get_db)):
 
 @router.get("/recent", response_model=list[ReviewOut])
 def recent_reviews(db: Session = Depends(get_db)):
-    """Public: top recent reviews for landing-page testimonials."""
-    rows = db.query(Review).filter(Review.rating >= 4).order_by(Review.created_at.desc()).limit(6).all()
+    """Public: consented, high-rated reviews for landing-page testimonials."""
+    rows = db.query(Review).filter(Review.rating >= 4,
+                                   Review.showcase_consent == True).order_by(  # noqa: E712
+        Review.created_at.desc()).limit(6).all()
     return [_out(db, r, mask_patient=True) for r in rows]
 
 

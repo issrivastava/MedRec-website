@@ -770,17 +770,20 @@ def overall_summary_pdf(data: OverallSummaryPdfIn, db: Session = Depends(get_db)
     text = (data.text or "").strip()[:15000]
     if len(text) < 10:
         raise HTTPException(status_code=422, detail="Summary text too short for a PDF")
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
-    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, Spacer
+    from app.services.clinic_branding import build_branded_pdf, brand
+    from app.services.pdf_widgets import (
+        title_band, info_pill, digi_stamp_paragraph,
+    )
     buf = BytesIO()
-    pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=15 * mm, bottomMargin=15 * mm)
     styles = getSampleStyleSheet()
+    b = brand()
     story = [
-        Paragraph(f"<b>AI Health Overview — {escape(user.full_name)}</b>", styles["Title"]),
-        Paragraph(f"{date.today().isoformat()} · {escape(user.health_id or '')}", styles["Normal"]),
-        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
+        title_band("AI HEALTH OVERVIEW", escape(user.health_id or "")),
+        Spacer(1, 6),
+        info_pill(f"<b>{escape(user.full_name)}</b>  •  {date.today().isoformat()}"),
+        Spacer(1, 6),
     ]
     for para in text.split("\n"):
         para = para.strip()
@@ -790,11 +793,14 @@ def overall_summary_pdf(data: OverallSummaryPdfIn, db: Session = Depends(get_db)
             story.append(Paragraph(escape(para).replace("\n", "<br/>"), styles["Normal"]))
             story.append(Spacer(1, 4))
     story += [
-        HRFlowable(width="100%", thickness=1), Spacer(1, 6),
+        Spacer(1, 6),
         Paragraph("<i>Informational summary only — not medical advice. Always consult your doctor.</i>",
                   styles["Italic"]),
+        Spacer(1, 4),
+        digi_stamp_paragraph(
+            b["name"], date.today().isoformat()),
     ]
-    pdf.build(story)
+    build_branded_pdf(buf, story, b["name"], "AI health overview")
     return Response(content=buf.getvalue(), media_type="application/pdf",
                     headers={"Content-Disposition": 'attachment; filename="overall-summary.pdf"'})
 

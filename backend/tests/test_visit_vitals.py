@@ -129,7 +129,8 @@ def test_rx_pdf_contains_vitals_and_details():
     assert resp.media_type == "application/pdf"
     assert resp.body[:5] == b"%PDF-"
     text = _pdf_text(resp.body)
-    for expected in ("E-PRESCRIPTION", "MCI-12345", "SAGARIKA", "120/80",
-                     "78", "98", "38.2", "62.5", "R50.9", "Paracetamol",
+    for expected in ("E-PRESCRIPTION", "MCI-12345", "SAGARIKA", "120 mmHg",
+                     "80 mmHg", "above normal", "78 beats/min", "98%", "38.2",
+                     "62.5", "R50.9", "Paracetamol",
                      "500mg", "2026-10-05", "Signature", "AH-1234"):
         assert expected in text, f"missing from Rx PDF: {expected}"

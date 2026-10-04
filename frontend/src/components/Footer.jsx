@@ -20,6 +20,8 @@ export default function Footer() {
             <Link to="/medicines">Medicines</Link>
             <Link to="/illnesses">Illnesses</Link>
             <Link to="/find-doctors">Find Doctors</Link>
+            <Link to="/triage">Symptom Guide</Link>
+            <Link to="/pricing">Pricing</Link>
             <Link to="/ask-ai">Ask AI</Link>
             {user ? <Link to={dashboard}>My Dashboard</Link> : <Link to="/login">Get started</Link>}
           </div>

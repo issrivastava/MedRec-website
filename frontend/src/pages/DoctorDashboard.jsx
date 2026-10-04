@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import api from '../api'
 import { DocumentPdfButton, ExportRecordButton, SummaryDownloadButton } from '../components/PdfButtons'
 import { useAuth } from '../context/AuthContext'
@@ -218,11 +219,17 @@ export default function DoctorDashboard() {
             </select>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
               {patients.map((p) => (
-                <button key={p.patient_id} onClick={() => setSelected(p.patient_id)}
-                  style={{ ...s.patCard, borderColor: selected === p.patient_id ? '#1e3a5f' : '#e7e5e4' }}>
-                  <Avatar seed={p.patient_id} name={p.patient_name} size={40} />
-                  <span style={{ textAlign: 'left' }}><b>{p.patient_name}</b><br /><small style={{ color: '#5d6b7a' }}>{p.patient_email}</small></span>
-                </button>
+                <div key={p.patient_id} style={{ ...s.patCard, borderColor: selected === p.patient_id ? '#1e3a5f' : '#e7e5e4' }}>
+                  <button onClick={() => setSelected(p.patient_id)}
+                    title={selected === p.patient_id ? 'Selected — write notes below' : 'Select for writing notes'}
+                    style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'none', border: 0, cursor: 'pointer', padding: 0, textAlign: 'left', flex: 1, minWidth: 0 }}>
+                    <Avatar seed={p.patient_id} name={p.patient_name} size={40} />
+                    <span style={{ textAlign: 'left' }}><b>{p.patient_name}</b><br /><small style={{ color: '#5d6b7a' }}>{p.patient_email}</small></span>
+                  </button>
+                  <Link to={`/doctor/patients/${p.patient_id}`} title="Open prescriptions, reports, vitals, vaccines, chat and more">
+                    <button>📂 Records</button>
+                  </Link>
+                </div>
               ))}
             </div>
             <label style={{ marginLeft: 12 }}>AI language: <select value={lang} onChange={(e) => setLang(e.target.value)} style={s.input}>
@@ -234,7 +241,11 @@ export default function DoctorDashboard() {
           {info && (
             <div className="cols-2" style={{ alignItems: 'start' }}>
               <section style={{ ...s.card, ...s.tintGreen }}>
-                <h3 className="sec-head"><span className="tile t-green">🧍</span> {info.user.full_name}</h3>
+                <h3 className="sec-head"><span className="tile t-green">🧍</span> {info.user.full_name}
+                  <Link to={`/doctor/patients/${selected}`} title="Open prescriptions, reports, vitals, vaccines, chat and more" style={{ marginLeft: 'auto' }}>
+                    <button>📂 Full records</button>
+                  </Link>
+                </h3>
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8 }}>
                   <Avatar seed={info.user.id} name={info.user.full_name} size={56} />
                   <p style={{ margin: 0 }}>Email: {info.user.email}<br />🩸 {info.profile?.blood_group || '—'} | 🎂 {info.profile?.dob || '—'}</p>

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import api from '../api'
 import { PhotoFrame, PHOTOS } from '../components/People'
 import { useAuth } from '../context/AuthContext'
 
@@ -35,7 +36,14 @@ const FAQS = [
 export default function Landing() {
   const { user } = useAuth()
   const [openFaq, setOpenFaq] = useState(null)
+  const [testimonials, setTestimonials] = useState([])
   const dashboard = user ? (user.role === 'doctor' ? '/doctor' : '/patient') : null
+
+  useEffect(() => {
+    api.get('/api/reviews/recent').then(({ data }) => setTestimonials(
+      (data || []).filter((r) => r.comment)
+    )).catch(() => setTestimonials([]))
+  }, [])
 
   return (
     <div>
@@ -138,6 +146,29 @@ export default function Landing() {
           ))}
         </div>
       </section>
+
+      {/* TESTIMONIALS — only consented, 4★+ reviews (first names only) */}
+      {!!testimonials.length && (
+        <section className="landing-section" style={{ paddingTop: 0 }}>
+          <p className="kicker">Patient stories</p>
+          <h2 className="h2-min">Loved by patients</h2>
+          <p className="sub-min">Real reviews from patients who opted in to share theirs.</p>
+          <div className="testi-grid">
+            {testimonials.map((r) => (
+              <figure key={r.id} className="testi-card">
+                <div className="testi-stars" aria-label={`${r.rating} out of 5 stars`}>
+                  {'★'.repeat(r.rating)}{'☆'.repeat(Math.max(0, 5 - r.rating))}
+                </div>
+                <blockquote>“{r.comment}”</blockquote>
+                <figcaption>
+                  <b>{r.patient_name}</b>
+                  {r.doctor_name && <span> · reviewed Dr. {r.doctor_name}</span>}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* FAQ */}
       <section className="landing-section" style={{ paddingTop: 0 }}>

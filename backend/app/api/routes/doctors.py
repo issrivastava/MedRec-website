@@ -209,3 +209,33 @@ def patient_overall_summary(patient_id: str, language: str = "en",
     text, used, model = summarize_overall(p.full_name, payload, language)
     return {"patient_id": patient_id, "summary_text": text,
             "model_used": model, "documents_used": used, "language": language}
+
+
+@router.get("/fee-bands")
+def consultation_fee_bands(db: Session = Depends(get_db)):
+    """Public: transparent consultation-fee bands per specialization.
+
+    Aggregates only (min/max/doctor count, no personal data) from live
+    doctor profiles that publish a fee. Powers the public Pricing page."""
+    from collections import defaultdict
+    fees: dict[str, list[float]] = defaultdict(list)
+    try:
+        rows = db.query(DoctorProfile).all()
+    except Exception:
+        rows = []
+    for prof in rows:
+        try:
+            fee = float(prof.consultation_fee) if prof.consultation_fee else None
+        except (TypeError, ValueError):
+            fee = None
+        spec = (prof.specialization or "General Physician").strip() or "General Physician"
+        if fee and fee > 0:
+            fees[spec].append(fee)
+    bands = [{"specialization": spec,
+              "min_fee": round(min(v), 2), "max_fee": round(max(v), 2),
+              "doctors": len(v)}
+             for spec, v in sorted(fees.items())]
+    return {"currency": "INR", "count": len(bands), "bands": bands,
+            "note": ("Live bands from doctors publishing a fee on MedRec. "
+                     "Your final bill depends on tests, procedures and stay — "
+                     "always confirm before treatment.")}

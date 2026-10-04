@@ -1,0 +1,16 @@
+@"
+.env
+.env.*
+.git
+.gitignore
+__pycache__
+*.pyc
+.pytest_cache
+venv
+.venv
+env
+uploads
+*.db
+*.sqlite3
+*.log
+"@ | Out-File -Encoding ascii backend\.dockerignore

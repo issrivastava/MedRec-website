@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import api from '../api'
+import api, { downloadBlobResponse, friendlyDownloadError } from '../api'
 import { RxTemplates } from './CareTools'
 import { calcAge } from '../utils'
 
@@ -52,6 +52,8 @@ export default function VisitNotes({ role, patientId }) {
   const [showTpl, setShowTpl] = useState(false)
   const [safety, setSafety] = useState(null) // {warnings, checked} | {error} | {checking:true}
   const [sendMsg, setSendMsg] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState('')
 
   const load = async () => {
     const url = role === 'doctor' ? `/api/visits/patient/${patientId}` : '/api/visits/my'
@@ -123,6 +125,24 @@ export default function VisitNotes({ role, patientId }) {
       load()
     } catch (err) {
       setSendMsg(err.response?.data?.detail || 'Could not send')
+    }
+  }
+
+  const rxCount = notes.filter((n) => n.note_type === 'prescription').length
+
+  /* Bulk download: all e-prescriptions as one combined PDF (newest first). */
+  const downloadAllRx = async () => {
+    if (bulkBusy || rxCount === 0) return
+    setBulkBusy(true); setBulkMsg('')
+    try {
+      const params = role === 'doctor' && patientId ? { patient_id: patientId } : {}
+      const res = await api.get('/api/visits/bulk-pdf', { params, responseType: 'blob' })
+      const name = await downloadBlobResponse(res, 'prescriptions.pdf')
+      setBulkMsg(`✅ Saved ${name}`)
+    } catch (e) {
+      setBulkMsg(`⚠️ ${friendlyDownloadError(e)}`)
+    } finally {
+      setBulkBusy(false)
     }
   }
 
@@ -217,6 +237,14 @@ export default function VisitNotes({ role, patientId }) {
           </div>
           {sendMsg && <small style={{ color: sendMsg.includes('✓') ? 'green' : '#b91c1c' }}>{sendMsg}</small>}
         </form>
+      )}
+      {rxCount > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+          <button disabled={bulkBusy} onClick={downloadAllRx} title="Download every prescription on one designed PDF (newest first)">
+            {bulkBusy ? '⏳ Preparing…' : `⬇ Download all prescriptions (${rxCount}, PDF)`}
+          </button>
+          {bulkMsg && <small style={{ color: bulkMsg.startsWith('✅') ? 'green' : '#b91c1c' }}>{bulkMsg}</small>}
+        </div>
       )}
       {notes.map((n) => (
         <div key={n.id} style={s.note}>

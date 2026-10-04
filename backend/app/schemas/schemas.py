@@ -428,6 +428,7 @@ class ReviewIn(BaseModel):
     doctor_id: str
     rating: int = Field(ge=1, le=5)
     comment: str | None = Field(default=None, max_length=2000)
+    showcase_consent: bool = False
 
 
 class ReviewOut(BaseModel):
@@ -438,6 +439,7 @@ class ReviewOut(BaseModel):
     patient_name: str | None = None
     rating: int
     comment: str | None = None
+    showcase_consent: bool = False
     created_at: datetime
 
     class Config:
@@ -1124,3 +1126,25 @@ class DispenseOut(BaseModel):
 
 class ArchiveIn(BaseModel):
     archived: bool = True
+
+
+class BrandingIn(BaseModel):
+    """Custom PDF header/footer text. Empty string resets to default."""
+    clinic_name: str | None = Field(default=None, max_length=120)
+    clinic_address: str | None = Field(default=None, max_length=500)
+    support_email: str | None = Field(default=None, max_length=120)
+    timings: str | None = Field(default=None, max_length=200)
+    footer_note: str | None = Field(default=None, max_length=200)
+
+
+class BrandingOut(BaseModel):
+    """Effective branding (custom values merged over defaults)."""
+    clinic_name: str
+    clinic_address: str = ""
+    support_email: str = ""
+    timings: str = ""
+    footer_note: str = ""
+    copyright: str = ""
+    custom: dict = {}
+    has_custom_logo: bool = False
+    logo_data_url: str | None = None
